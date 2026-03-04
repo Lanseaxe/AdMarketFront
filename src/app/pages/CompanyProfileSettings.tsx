@@ -1,0 +1,460 @@
+import { Link } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import Sidebar from "../components/Sidebar";
+import { Card } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { ArrowLeft, AlertCircle, CheckCircle2, Building2 } from "lucide-react";
+import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
+
+type Industry = {
+  id: number;
+  name: string;
+};
+
+type Country = {
+  id: number;
+  name: string;
+  code: string;
+};
+
+type CompanyProfileResponse = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  userId: number;
+  companyName: string;
+  industryName: string;
+  description: string;
+  websiteUrl: string;
+  country: Country;
+  minBudget: number;
+  maxBudget: number;
+};
+
+function getErrorMessage(status: number, data: unknown, fallback: string) {
+  if (data && typeof data === "object") {
+    const maybeObj = data as Record<string, unknown>;
+    const directMessage =
+      (typeof maybeObj.message === "string" && maybeObj.message) ||
+      (typeof maybeObj.detail === "string" && maybeObj.detail) ||
+      (typeof maybeObj.error === "string" && maybeObj.error);
+    if (directMessage) return directMessage;
+  }
+
+  if (status === 400) return "Invalid profile data.";
+  if (status === 401) return "Unauthorized. Please sign in again.";
+  if (status === 404) return "Required profile resource was not found.";
+
+  return `${fallback} (HTTP ${status}).`;
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetchWithAuthRetry(url, {
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await parseBodySafe(res);
+
+  if (!res.ok) {
+    throw new Error(getErrorMessage(res.status, data, "Request failed"));
+  }
+
+  return data as T;
+}
+
+async function updateCompanyProfile(userId: number, payload: {
+  companyName: string;
+  industryId: number;
+  description: string;
+  websiteUrl: string;
+  countryId: number;
+  minBudget: number;
+  maxBudget: number;
+}): Promise<CompanyProfileResponse> {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+
+  const res = await fetchWithAuthRetry(`${apiBase}/api/v1/company/${userId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await parseBodySafe(res);
+
+  if (!res.ok) {
+    throw new Error(getErrorMessage(res.status, data, "Failed to save company profile"));
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new Error("Backend returned an invalid company profile response.");
+  }
+
+  return data as CompanyProfileResponse;
+}
+
+function normalizeWebsite(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+export default function CompanyProfile() {
+  const role = localStorage.getItem("role");
+  const isCompany = role === "COMPANY";
+  const userId = Number(localStorage.getItem("userId"));
+
+  const [name, setName] = useState(localStorage.getItem("fullName") || "");
+  const [bio, setBio] = useState("");
+  const [website, setWebsite] = useState("");
+  const [industryId, setIndustryId] = useState("");
+  const [countryId, setCountryId] = useState("");
+  const [minBudget, setMinBudget] = useState("0");
+  const [maxBudget, setMaxBudget] = useState("0");
+
+  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [initLoading, setInitLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(
+    localStorage.getItem("companyProfileCompleted") !== "true",
+  );
+
+  useEffect(() => {
+    const apiBase = getApiBaseUrl();
+    if (!apiBase) {
+      setError("VITE_API_URL is not set. Add it to your .env file.");
+      setInitLoading(false);
+      return;
+    }
+
+    let active = true;
+    const load = async () => {
+      try {
+        const [industryList, countryList] = await Promise.all([
+          fetchJson<Industry[]>(`${apiBase}/api/v1/industry`),
+          fetchJson<Country[]>(`${apiBase}/api/v1/country`),
+        ]);
+
+        if (!active) return;
+        setIndustries(Array.isArray(industryList) ? industryList : []);
+        setCountries(Array.isArray(countryList) ? countryList : []);
+
+        const cached = localStorage.getItem("companyProfile");
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached) as Record<string, unknown>;
+            if (typeof parsed.companyName === "string") setName(parsed.companyName);
+            if (typeof parsed.description === "string") setBio(parsed.description);
+            if (typeof parsed.websiteUrl === "string") setWebsite(parsed.websiteUrl);
+            if (typeof parsed.industryId === "number") setIndustryId(String(parsed.industryId));
+            if (typeof parsed.countryId === "number") setCountryId(String(parsed.countryId));
+            if (typeof parsed.minBudget === "number") setMinBudget(String(parsed.minBudget));
+            if (typeof parsed.maxBudget === "number") setMaxBudget(String(parsed.maxBudget));
+          } catch {
+            // ignore broken cache
+          }
+        }
+      } catch (err: any) {
+        if (!active) return;
+        setError(err?.message || "Failed to load industries and countries.");
+      } finally {
+        if (active) setInitLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const canSave = useMemo(() => {
+    return !saving && !initLoading && isCompany && Number.isFinite(userId) && isEditing;
+  }, [saving, initLoading, isCompany, userId, isEditing]);
+
+  const onSave = async () => {
+    setError(null);
+    setSuccess(null);
+
+    const parsedIndustryId = Number(industryId);
+    const parsedCountryId = Number(countryId);
+    const parsedMin = Number(minBudget);
+    const parsedMax = Number(maxBudget);
+    const normalizedWebsite = normalizeWebsite(website);
+
+    if (!isCompany) {
+      setError("This page is for COMPANY accounts.");
+      return;
+    }
+    if (!Number.isFinite(userId)) {
+      setError("User ID is missing. Re-login and try again.");
+      return;
+    }
+    if (!name.trim()) {
+      setError("Company name is required.");
+      return;
+    }
+    if (!Number.isFinite(parsedIndustryId) || parsedIndustryId < 0) {
+      setError("Please choose an industry.");
+      return;
+    }
+    if (!Number.isFinite(parsedCountryId) || parsedCountryId < 0) {
+      setError("Please choose a country.");
+      return;
+    }
+    if (!Number.isFinite(parsedMin) || parsedMin < 0) {
+      setError("Minimum budget must be a non-negative number.");
+      return;
+    }
+    if (!Number.isFinite(parsedMax) || parsedMax < 0) {
+      setError("Maximum budget must be a non-negative number.");
+      return;
+    }
+    if (parsedMax < parsedMin) {
+      setError("Maximum budget cannot be less than minimum budget.");
+      return;
+    }
+    if (normalizedWebsite) {
+      try {
+        new URL(normalizedWebsite);
+      } catch {
+        setError("Please enter a valid website URL.");
+        return;
+      }
+    }
+
+    try {
+      setSaving(true);
+
+      const response = await updateCompanyProfile(userId, {
+        companyName: name.trim(),
+        industryId: parsedIndustryId,
+        description: bio.trim(),
+        websiteUrl: normalizedWebsite,
+        countryId: parsedCountryId,
+        minBudget: parsedMin,
+        maxBudget: parsedMax,
+      });
+
+      const selectedIndustry = industries.find((item) => item.name === response.industryName);
+      const normalizedProfileCache = {
+        id: response.id,
+        userId: response.userId,
+        companyName: response.companyName,
+        description: response.description,
+        websiteUrl: response.websiteUrl,
+        industryId: selectedIndustry?.id ?? parsedIndustryId,
+        industryName: response.industryName,
+        countryId: response.country.id,
+        countryName: response.country.name,
+        minBudget: response.minBudget,
+        maxBudget: response.maxBudget,
+      };
+
+      localStorage.setItem("companyProfile", JSON.stringify(normalizedProfileCache));
+      localStorage.setItem("profileCompleted", "true");
+      localStorage.setItem("companyProfileCompleted", "true");
+      localStorage.setItem("fullName", response.companyName);
+
+      setIndustryId(String(normalizedProfileCache.industryId));
+      setCountryId(String(response.country.id));
+      setName(response.companyName);
+      setBio(response.description);
+      setWebsite(response.websiteUrl);
+      setMinBudget(String(response.minBudget));
+      setMaxBudget(String(response.maxBudget));
+      setSuccess("Company profile saved.");
+      setIsEditing(false);
+    } catch (err: any) {
+      setError(err?.message || "Failed to save company profile.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen bg-[#F9FAFB]">
+      <Sidebar />
+
+      <main className="flex-1 p-8">
+        <div className="max-w-4xl mx-auto">
+          <Link to="/dashboard">
+            <Button variant="ghost" className="mb-6">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Dashboard
+            </Button>
+          </Link>
+
+          <Card className="p-8 bg-white border border-gray-200 rounded-xl">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-[#EFF6FF] rounded-lg flex items-center justify-center">
+                <Building2 className="w-5 h-5 text-[#3B82F6]" />
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900">Company Profile</h1>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Complete this once after registration, then update it anytime from Profile.
+            </p>
+
+            {!isCompany && (
+              <div className="mb-5 flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+                <AlertCircle className="w-4 h-4 mt-0.5" />
+                <div>This page is intended for COMPANY users.</div>
+              </div>
+            )}
+
+            {initLoading && (
+              <div className="mb-5 text-sm text-gray-600">Loading industries and countries...</div>
+            )}
+
+            {error && (
+              <div className="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <AlertCircle className="w-4 h-4 mt-0.5" />
+                <div>{error}</div>
+              </div>
+            )}
+
+            {success && (
+              <div className="mb-5 flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                <CheckCircle2 className="w-4 h-4 mt-0.5" />
+                <div>{success}</div>
+              </div>
+            )}
+
+            <div className="space-y-5">
+              <div>
+                <label className="text-sm font-medium text-gray-700">Company Name</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={!isEditing}
+                  className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+                  placeholder="Acme Technologies"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">Bio</label>
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  disabled={!isEditing}
+                  rows={4}
+                  className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+                  placeholder="Short info about your company..."
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">Website</label>
+                <input
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+                  placeholder="https://example.com"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Industry</label>
+                  <Select value={industryId} onValueChange={setIndustryId} disabled={!isEditing}>
+                    <SelectTrigger className="mt-2 h-11 border-gray-200 rounded-xl">
+                      <SelectValue placeholder="Choose industry" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {industries.map((item) => (
+                        <SelectItem key={item.id} value={String(item.id)}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Country</label>
+                  <Select value={countryId} onValueChange={setCountryId} disabled={!isEditing}>
+                    <SelectTrigger className="mt-2 h-11 border-gray-200 rounded-xl">
+                      <SelectValue placeholder="Choose country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {countries.map((item) => (
+                        <SelectItem key={item.id} value={String(item.id)}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Min Budget</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={minBudget}
+                    onChange={(e) => setMinBudget(e.target.value)}
+                    disabled={!isEditing}
+                    className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+                    placeholder="0"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Max Budget</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={maxBudget}
+                    onChange={(e) => setMaxBudget(e.target.value)}
+                    disabled={!isEditing}
+                    className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {isEditing ? (
+                <Button
+                  type="button"
+                  disabled={!canSave}
+                  onClick={onSave}
+                  className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90 rounded-xl py-6 text-base"
+                >
+                  {saving ? "Saving..." : "Save Profile"}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setSuccess(null);
+                    setIsEditing(true);
+                  }}
+                  className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90 rounded-xl py-6 text-base"
+                >
+                  Edit Profile
+                </Button>
+              )}
+            </div>
+          </Card>
+        </div>
+      </main>
+    </div>
+  );
+}

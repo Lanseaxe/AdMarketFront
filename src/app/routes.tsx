@@ -2,12 +2,18 @@ import { createBrowserRouter } from "react-router";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import CreatorProfile from "./pages/CreatorProfile";
+import CompanyPublicProfile from "./pages/CompanyPublicProfile";
 import MatchExplanation from "./pages/MatchExplanation";
 import Conversations from "./pages/Conversations";
 import NotFound from "./pages/NotFound";
 import PlaceholderPage from "./pages/PlaceholderPage";
+import MyCampaigns from "./pages/MyCampaigns";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
+import ConfirmEmail from "./pages/ConfirmEmail";
+import ForgotPasswordRequest from "./pages/ForgotPasswordRequest";
+import ForgotPasswordReset from "./pages/ForgotPasswordReset";
+import ProfileSettings from "./pages/ProfileSettings";
 
 export const router = createBrowserRouter([
   {
@@ -23,6 +29,18 @@ export const router = createBrowserRouter([
     path: "/signup",
     Component: SignUp,
   },
+  {
+    path: "/forgot-password",
+    Component: ForgotPasswordRequest,
+  },
+  {
+    path: "/forgot-password/reset",
+    Component: ForgotPasswordReset,
+  },
+  {
+    path: "/confirm-email",
+    Component: ConfirmEmail,
+  },
 
   {
     path: "/dashboard",
@@ -31,6 +49,10 @@ export const router = createBrowserRouter([
   {
     path: "/creator/:id",
     Component: CreatorProfile,
+  },
+  {
+    path: "/company/:id",
+    Component: CompanyPublicProfile,
   },
   {
     path: "/match/:id",
@@ -43,12 +65,7 @@ export const router = createBrowserRouter([
 
   {
     path: "/campaigns",
-    element: (
-      <PlaceholderPage
-        title="My Campaigns"
-        description="Campaign management features coming soon. View AI-recommended matches on the Dashboard."
-      />
-    ),
+    Component: MyCampaigns,
   },
   {
     path: "/matches",
@@ -70,12 +87,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/profile",
-    element: (
-      <PlaceholderPage
-        title="Profile Settings"
-        description="Profile management features coming soon."
-      />
-    ),
+    Component: ProfileSettings,
   },
 
   {

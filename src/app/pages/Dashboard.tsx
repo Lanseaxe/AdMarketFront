@@ -1,121 +1,241 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useMemo, useState } from "react";
 import Sidebar from "../components/Sidebar";
-import KPICard from "../components/KPICard";
-import RiskBadge from "../components/RiskBadge";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import {
-  Megaphone,
-  DollarSign,
-  TrendingUp,
-  ShieldAlert,
-  Youtube,
-  Instagram,
-  Twitter,
-  Search,
-} from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
+import { Search, Filter, SlidersHorizontal } from "lucide-react";
+import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
+import { syncCurrentUserFromApi } from "../lib/user-session";
 
-const audienceData = [
-  { name: "18-24", value: 25 },
-  { name: "25-34", value: 35 },
-  { name: "35-44", value: 20 },
-  { name: "45-54", value: 15 },
-  { name: "55+", value: 5 },
+type CreatorItem = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  userId: number;
+  displayName: string;
+  bio: string;
+  primaryCategoryName: string;
+  followersCount: number;
+  avgViews: number;
+  engagementRate: number;
+  contactEmail: string;
+};
+
+type CompanyItem = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  userId: number;
+  companyName: string;
+  industryName: string;
+  description: string;
+  websiteUrl: string;
+  country: { id: number; name: string; code: string };
+  minBudget: number;
+  maxBudget: number;
+};
+
+type OfferItem = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  title: string;
+  description: string;
+  budget: number;
+  currency: string;
+  campaignStartDate: string;
+  campaignEndDate: string;
+  status: string;
+  category?: { id: number; name: string };
+  company?: { id: number; companyName: string };
+};
+
+type PageResponse<T> = {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
+  empty: boolean;
+};
+
+const CREATOR_SORT_OPTIONS = [
+  { value: "displayName,asc", label: "Alphabetical (A-Z)" },
+  { value: "displayName,desc", label: "Alphabetical (Z-A)" },
+  { value: "createdAt,desc", label: "Newest first" },
+  { value: "createdAt,asc", label: "Oldest first" },
+  { value: "followersCount,desc", label: "Followers high to low" },
 ];
 
-const performanceData = [
-  { name: "Jan", predicted: 4.5, actual: 4.2 },
-  { name: "Feb", predicted: 5.2, actual: 5.5 },
-  { name: "Mar", predicted: 6.1, actual: 5.8 },
-  { name: "Apr", predicted: 6.8, actual: 7.2 },
+const COMPANY_SORT_OPTIONS = [
+  { value: "companyName,asc", label: "Alphabetical (A-Z)" },
+  { value: "companyName,desc", label: "Alphabetical (Z-A)" },
+  { value: "createdAt,desc", label: "Newest first" },
+  { value: "createdAt,asc", label: "Oldest first" },
+  { value: "maxBudget,desc", label: "Budget high to low" },
 ];
 
-const COLORS = ["#3B82F6", "#1E3A8A", "#60A5FA", "#93C5FD", "#DBEAFE"];
-
-const aiMatches = [
-  {
-    id: 1,
-    name: "Sarah Johnson",
-    image:
-      "https://images.unsplash.com/photo-1581065178047-8ee15951ede6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHdvbWFuJTIwcG9ydHJhaXR8ZW58MXx8fHwxNzcxNDY0OTM0fDA&ixlib=rb-4.1.0&q=80&w=1080",
-    platforms: ["youtube", "instagram"],
-    categories: ["Technology", "Business"],
-    matchScore: 94,
-    predictedCTR: "4.8%",
-    risk: "LOW" as const,
-    followers: "850K",
-  },
-  {
-    id: 2,
-    name: "Marcus Chen",
-    image:
-      "https://images.unsplash.com/photo-1556557286-bf3be5fd9d06?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx5b3VuZyUyMGNvbnRlbnQlMjBjcmVhdG9yJTIwbWFsZXxlbnwxfHx8fDE3NzE0Njc1MTF8MA&ixlib=rb-4.1.0&q=80&w=1080",
-    platforms: ["youtube", "twitter"],
-    categories: ["Tech Reviews", "SaaS"],
-    matchScore: 89,
-    predictedCTR: "4.5%",
-    risk: "LOW" as const,
-    followers: "620K",
-  },
-  {
-    id: 3,
-    name: "Emma Davis",
-    image:
-      "https://images.unsplash.com/photo-1602566356438-dd36d35e989c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmZW1hbGUlMjBkaWdpdGFsJTIwY3JlYXRvciUyMHBvcnRyYWl0fGVufDF8fHx8MTc3MTQ2NzUxNHww&ixlib=rb-4.1.0&q=80&w=1080",
-    platforms: ["instagram", "youtube"],
-    categories: ["Marketing", "Productivity"],
-    matchScore: 87,
-    predictedCTR: "4.2%",
-    risk: "MEDIUM" as const,
-    followers: "440K",
-  },
-  {
-    id: 4,
-    name: "Alex Rivera",
-    image:
-      "https://images.unsplash.com/photo-1531539648265-33e27dc578c1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0ZWNoJTIwc3RhcnR1cCUyMGVudHJlcHJlbmV1cnxlbnwxfHx8fDE3NzE0Njc1MTJ8MA&ixlib=rb-4.1.0&q=80&w=1080",
-    platforms: ["youtube"],
-    categories: ["Entrepreneurship", "B2B"],
-    matchScore: 82,
-    predictedCTR: "3.9%",
-    risk: "LOW" as const,
-    followers: "590K",
-  },
+const OFFER_SORT_OPTIONS = [
+  { value: "title,asc", label: "Alphabetical (A-Z)" },
+  { value: "title,desc", label: "Alphabetical (Z-A)" },
+  { value: "createdAt,desc", label: "Newest first" },
+  { value: "createdAt,asc", label: "Oldest first" },
+  { value: "budget,desc", label: "Budget high to low" },
 ];
 
-// ✅ For now "All Profiles" uses the same mock array.
-// Later you can replace this with a real "allCreators" list from backend.
-const allProfiles = aiMatches;
+function buildPagedUrl(basePath: string, page: number, size: number, sort: string) {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) return null;
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("size", String(size));
+  params.append("sort", sort);
+  return `${apiBase}${basePath}?${params.toString()}`;
+}
+
+async function fetchPaged<T>(url: string): Promise<PageResponse<T>> {
+  const res = await fetchWithAuthRetry(url, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  const data = await parseBodySafe(res);
+  if (!res.ok) {
+    throw new Error(`Failed to load list (HTTP ${res.status})`);
+  }
+  if (!data || typeof data !== "object") {
+    throw new Error("Invalid list response from backend.");
+  }
+  return data as PageResponse<T>;
+}
 
 export default function Dashboard() {
-  // ✅ Search/filter state for "All Profiles"
+  const [role, setRole] = useState(localStorage.getItem("role"));
+  const isCreator = role === "CREATOR";
+
   const [query, setQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [creatorViewMode, setCreatorViewMode] = useState<"companies" | "offers">("companies");
 
-  const filteredProfiles = useMemo(() => {
+  const [creatorSort, setCreatorSort] = useState("displayName,asc");
+  const [companySort, setCompanySort] = useState("companyName,asc");
+  const [offerSort, setOfferSort] = useState("createdAt,desc");
+  const [creatorCategoryFilter, setCreatorCategoryFilter] = useState("ALL");
+  const [companyIndustryFilter, setCompanyIndustryFilter] = useState("ALL");
+  const [offerCategoryFilter, setOfferCategoryFilter] = useState("ALL");
+
+  const [creators, setCreators] = useState<CreatorItem[]>([]);
+  const [companies, setCompanies] = useState<CompanyItem[]>([]);
+  const [offers, setOffers] = useState<OfferItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const syncRole = async () => {
+      const me = await syncCurrentUserFromApi();
+      if (!active) return;
+      setRole(me?.role || localStorage.getItem("role"));
+    };
+    syncRole();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        if (isCreator) {
+          if (creatorViewMode === "companies") {
+            const url = buildPagedUrl("/api/v1/company", 0, 100, companySort);
+            if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+            const page = await fetchPaged<CompanyItem>(url);
+            if (!active) return;
+            setCompanies(Array.isArray(page.content) ? page.content : []);
+            setTotalCount(page.totalElements || 0);
+          } else {
+            const url = buildPagedUrl("/api/v1/offer", 0, 200, offerSort);
+            if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+            const page = await fetchPaged<OfferItem>(url);
+            if (!active) return;
+            const all = Array.isArray(page.content) ? page.content : [];
+            const activeOffers = all.filter((o) => o.status?.toUpperCase() === "ACTIVE");
+            setOffers(activeOffers);
+            setTotalCount(activeOffers.length);
+          }
+        } else {
+          const url = buildPagedUrl("/api/v1/creator", 0, 100, creatorSort);
+          if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+          const page = await fetchPaged<CreatorItem>(url);
+          if (!active) return;
+          setCreators(Array.isArray(page.content) ? page.content : []);
+          setTotalCount(page.totalElements || 0);
+        }
+      } catch (err: any) {
+        if (!active) return;
+        setError(err?.message || "Failed to load dashboard data.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [isCreator, creatorSort, companySort, creatorViewMode, offerSort]);
+
+  const creatorCategories = useMemo(() => {
+    const set = new Set(creators.map((c) => c.primaryCategoryName).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [creators]);
+
+  const companyIndustries = useMemo(() => {
+    const set = new Set(companies.map((c) => c.industryName).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [companies]);
+
+  const offerCategories = useMemo(() => {
+    const set = new Set(offers.map((o) => o.category?.name).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [offers]);
+
+  const filteredCreators = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return allProfiles;
-
-    return allProfiles.filter((c) => {
-      const name = c.name.toLowerCase();
-      const cats = c.categories.join(" ").toLowerCase();
-      const plats = c.platforms.join(" ").toLowerCase();
-      return name.includes(q) || cats.includes(q) || plats.includes(q);
+    return creators.filter((item) => {
+      const byName = item.displayName.toLowerCase().includes(q);
+      const byCategory =
+        creatorCategoryFilter === "ALL" || item.primaryCategoryName === creatorCategoryFilter;
+      return byName && byCategory;
     });
-  }, [query]);
+  }, [creators, query, creatorCategoryFilter]);
+
+  const filteredCompanies = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return companies.filter((item) => {
+      const byName = item.companyName.toLowerCase().includes(q);
+      const byIndustry =
+        companyIndustryFilter === "ALL" || item.industryName === companyIndustryFilter;
+      return byName && byIndustry;
+    });
+  }, [companies, query, companyIndustryFilter]);
+
+  const filteredOffers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return offers.filter((item) => {
+      const byName =
+        item.title?.toLowerCase().includes(q) ||
+        item.company?.companyName?.toLowerCase().includes(q);
+      const byCategory =
+        offerCategoryFilter === "ALL" || item.category?.name === offerCategoryFilter;
+      return byName && byCategory;
+    });
+  }, [offers, query, offerCategoryFilter]);
 
   return (
     <div className="flex min-h-screen bg-[#F9FAFB]">
@@ -123,360 +243,316 @@ export default function Dashboard() {
 
       <main className="flex-1 p-8">
         <div className="max-w-7xl mx-auto">
-          {/* Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Dashboard Overview
-            </h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard Overview</h1>
             <p className="text-gray-600">
-              Monitor your campaigns and discover AI-matched creators
+              {isCreator
+                ? "Discover companies and partnership opportunities."
+                : "Discover creators for your campaigns."}
             </p>
           </div>
 
-          {/* KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <KPICard
-              title="Active Campaigns"
-              value={12}
-              icon={Megaphone}
-              trend="3 new this week"
-              trendUp={true}
-            />
-            <KPICard
-              title="Total Budget"
-              value="$124K"
-              icon={DollarSign}
-              trend="$18K remaining"
-              trendUp={true}
-            />
-            <KPICard
-              title="Predicted ROI"
-              value="327%"
-              icon={TrendingUp}
-              trend="+12% vs last month"
-              trendUp={true}
-            />
-            <KPICard
-              title="Risk Index"
-              value="Low"
-              icon={ShieldAlert}
-              trend="All campaigns verified"
-              trendUp={true}
-            />
-          </div>
-
-          {/* AI Recommendations */}
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-semibold text-gray-900 mb-1">
-                  AI Recommended Matches
-                </h2>
-                <p className="text-gray-600">
-                  Top creators for your active campaigns
-                </p>
+          <Card className="p-6 bg-white border border-gray-200 rounded-xl mb-6">
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={
+                    isCreator
+                      ? creatorViewMode === "companies"
+                        ? "Search companies by name..."
+                        : "Search offers or company name..."
+                      : "Search creators by name..."
+                  }
+                  className="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+                />
               </div>
+
               <Button
+                type="button"
                 variant="outline"
+                onClick={() => setFilterOpen((v) => !v)}
                 className="border-[#3B82F6] text-[#3B82F6]"
               >
-                View All Matches
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
               </Button>
             </div>
 
+            {filterOpen && (
+              <div className="mt-4 border border-gray-200 rounded-xl p-4 bg-[#F9FAFB]">
+                <div className="flex items-center gap-2 mb-4 text-gray-700">
+                  <SlidersHorizontal className="w-4 h-4" />
+                  <span className="text-sm font-medium">Filter options</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {isCreator && (
+                    <div className="md:col-span-2">
+                      <label className="text-xs font-medium text-gray-600">Show</label>
+                      <select
+                        value={creatorViewMode}
+                        onChange={(e) => setCreatorViewMode(e.target.value as "companies" | "offers")}
+                        className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                      >
+                        <option value="companies">Companies</option>
+                        <option value="offers">Active offers</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">
+                      {isCreator
+                        ? creatorViewMode === "companies"
+                          ? "Industry"
+                          : "Offer category"
+                        : "Category"}
+                    </label>
+                    {isCreator ? (
+                      creatorViewMode === "companies" ? (
+                        <select
+                          value={companyIndustryFilter}
+                          onChange={(e) => setCompanyIndustryFilter(e.target.value)}
+                          className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                        >
+                          <option value="ALL">All industries</option>
+                          {companyIndustries.map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <select
+                          value={offerCategoryFilter}
+                          onChange={(e) => setOfferCategoryFilter(e.target.value)}
+                          className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                        >
+                          <option value="ALL">All offer categories</option>
+                          {offerCategories.map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    ) : (
+                      <select
+                        value={creatorCategoryFilter}
+                        onChange={(e) => setCreatorCategoryFilter(e.target.value)}
+                        className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                      >
+                        <option value="ALL">All categories</option>
+                        {creatorCategories.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">Order</label>
+                    {isCreator ? (
+                      creatorViewMode === "companies" ? (
+                        <select
+                          value={companySort}
+                          onChange={(e) => setCompanySort(e.target.value)}
+                          className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                        >
+                          {COMPANY_SORT_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <select
+                          value={offerSort}
+                          onChange={(e) => setOfferSort(e.target.value)}
+                          className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                        >
+                          {OFFER_SORT_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    ) : (
+                      <select
+                        value={creatorSort}
+                        onChange={(e) => setCreatorSort(e.target.value)}
+                        className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                      >
+                        {CREATOR_SORT_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          <div className="mb-5 text-sm text-gray-600">
+            {loading
+              ? "Loading users..."
+              : `Showing ${
+                  isCreator
+                    ? creatorViewMode === "companies"
+                      ? filteredCompanies.length
+                      : filteredOffers.length
+                    : filteredCreators.length
+                } of ${totalCount}`}
+          </div>
+
+          {error && (
+            <Card className="p-4 border border-red-200 bg-red-50 text-red-700 mb-6">{error}</Card>
+          )}
+
+          {!loading && !error && isCreator && creatorViewMode === "companies" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {aiMatches.map((creator) => (
+              {filteredCompanies.map((company) => (
+                <Card
+                  key={company.id}
+                  className="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-shadow"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">{company.companyName}</h3>
+                      <p className="text-sm text-gray-600 mt-0.5">{company.country?.name || "Country N/A"}</p>
+                    </div>
+                    <Badge variant="secondary" className="bg-[#EFF6FF] text-[#3B82F6]">
+                      {company.industryName || "N/A"}
+                    </Badge>
+                  </div>
+
+                  <p className="text-sm text-gray-700 mb-4 line-clamp-3">{company.description || "No description provided."}</p>
+
+                  <div className="text-sm text-gray-700 mb-4">
+                    Budget: <span className="font-medium">${company.minBudget}</span> -{" "}
+                    <span className="font-medium">${company.maxBudget}</span>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Link to={`/company/${company.id}`} className="flex-1">
+                      <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">View Profile</Button>
+                    </Link>
+                    {company.websiteUrl ? (
+                      <a href={company.websiteUrl} target="_blank" rel="noreferrer" className="flex-1">
+                        <Button variant="outline" className="w-full">Visit Website</Button>
+                      </a>
+                    ) : (
+                      <Button disabled variant="outline" className="w-full">Website N/A</Button>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {!loading && !error && isCreator && creatorViewMode === "offers" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {filteredOffers.map((offer) => (
+                <Card
+                  key={offer.id}
+                  className="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-shadow"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">{offer.title}</h3>
+                      <p className="text-sm text-gray-600 mt-0.5">{offer.company?.companyName || "Unknown company"}</p>
+                    </div>
+                    <Badge variant="secondary" className="bg-[#EFF6FF] text-[#3B82F6]">
+                      {offer.category?.name || "N/A"}
+                    </Badge>
+                  </div>
+
+                  <p className="text-sm text-gray-700 mb-3 line-clamp-3">
+                    {offer.description || "No description provided."}
+                  </p>
+
+                  <p className="text-sm text-gray-700 mb-1">
+                    Budget: {offer.budget} {offer.currency}
+                  </p>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {offer.campaignStartDate} to {offer.campaignEndDate}
+                  </p>
+
+                  {offer.company?.id ? (
+                    <Link to={`/company/${offer.company.id}`}>
+                      <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">View Company</Button>
+                    </Link>
+                  ) : (
+                    <Button disabled className="w-full">Company unavailable</Button>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {!loading && !error && !isCreator && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {filteredCreators.map((creator) => (
                 <Card
                   key={creator.id}
                   className="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-shadow"
                 >
-                  <div className="flex items-start gap-4">
-                    <img
-                      src={creator.image}
-                      alt={creator.name}
-                      className="w-20 h-20 rounded-xl object-cover"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <h3 className="font-semibold text-gray-900 text-lg">
-                            {creator.name}
-                          </h3>
-                          <p className="text-sm text-gray-600">
-                            {creator.followers} followers
-                          </p>
-                        </div>
-                        <RiskBadge level={creator.risk} />
-                      </div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">{creator.displayName}</h3>
+                      <p className="text-sm text-gray-600 mt-0.5">{creator.contactEmail}</p>
+                    </div>
+                    <Badge variant="secondary" className="bg-[#EFF6FF] text-[#3B82F6]">
+                      {creator.primaryCategoryName || "N/A"}
+                    </Badge>
+                  </div>
 
-                      <div className="flex gap-2 mb-3">
-                        {creator.platforms.includes("youtube") && (
-                          <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-                            <Youtube className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                        {creator.platforms.includes("instagram") && (
-                          <div className="w-8 h-8 bg-pink-100 rounded-lg flex items-center justify-center">
-                            <Instagram className="w-4 h-4 text-pink-600" />
-                          </div>
-                        )}
-                        {creator.platforms.includes("twitter") && (
-                          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                            <Twitter className="w-4 h-4 text-blue-600" />
-                          </div>
-                        )}
-                      </div>
+                  <p className="text-sm text-gray-700 mb-4 line-clamp-3">{creator.bio || "No bio provided."}</p>
 
-                      <div className="flex gap-2 mb-4">
-                        {creator.categories.map((cat) => (
-                          <Badge
-                            key={cat}
-                            variant="secondary"
-                            className="bg-[#EFF6FF] text-[#3B82F6] text-xs"
-                          >
-                            {cat}
-                          </Badge>
-                        ))}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <p className="text-xs text-gray-600 mb-1">
-                            Match Score
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-[#3B82F6] rounded-full"
-                                style={{ width: `${creator.matchScore}%` }}
-                              />
-                            </div>
-                            <span className="text-sm font-semibold text-gray-900">
-                              {creator.matchScore}%
-                            </span>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-600 mb-1">
-                            Predicted CTR
-                          </p>
-                          <p className="text-sm font-semibold text-gray-900">
-                            {creator.predictedCTR}
-                          </p>
-                        </div>
-                      </div>
-
-                      <Link to={`/match/${creator.id}`}>
-                        <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">
-                          View Details
-                        </Button>
-                      </Link>
+                  <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
+                    <div className="rounded-lg bg-[#F9FAFB] p-3 border border-gray-200">
+                      <div className="text-gray-500 text-xs">Followers</div>
+                      <div className="font-medium text-gray-900">{creator.followersCount}</div>
+                    </div>
+                    <div className="rounded-lg bg-[#F9FAFB] p-3 border border-gray-200">
+                      <div className="text-gray-500 text-xs">Avg Views</div>
+                      <div className="font-medium text-gray-900">{creator.avgViews}</div>
+                    </div>
+                    <div className="rounded-lg bg-[#F9FAFB] p-3 border border-gray-200">
+                      <div className="text-gray-500 text-xs">Engagement</div>
+                      <div className="font-medium text-gray-900">{creator.engagementRate}%</div>
                     </div>
                   </div>
+
+                  <Link to={`/creator/${creator.id}`}>
+                    <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">View Profile</Button>
+                  </Link>
                 </Card>
               ))}
             </div>
-          </div>
+          )}
 
-          {/* ✅ NEW: All Profiles + Filter */}
-          <div className="mb-8">
-            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-2xl font-semibold text-gray-900 mb-1">
-                  All Creator Profiles
-                </h2>
-                <p className="text-gray-600">
-                  Search and browse all creators available on the platform
-                </p>
-              </div>
+          {!loading && !error && isCreator && creatorViewMode === "companies" && filteredCompanies.length === 0 && (
+            <Card className="p-8 text-center text-gray-600 border border-gray-200">No companies found.</Card>
+          )}
 
-              <div className="w-full md:w-[420px]">
-                <div className="relative">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search by name, category or platform..."
-                    className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
-                  />
-                </div>
-              </div>
-            </div>
+          {!loading && !error && isCreator && creatorViewMode === "offers" && filteredOffers.length === 0 && (
+            <Card className="p-8 text-center text-gray-600 border border-gray-200">No active offers found.</Card>
+          )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {filteredProfiles.map((creator) => (
-                <Card
-                  key={`all-${creator.id}`}
-                  className="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-shadow"
-                >
-                  <div className="flex items-start gap-4">
-                    <img
-                      src={creator.image}
-                      alt={creator.name}
-                      className="w-20 h-20 rounded-xl object-cover"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <h3 className="font-semibold text-gray-900 text-lg">
-                            {creator.name}
-                          </h3>
-                          <p className="text-sm text-gray-600">
-                            {creator.followers} followers
-                          </p>
-                        </div>
-                        <RiskBadge level={creator.risk} />
-                      </div>
+          {!loading && !error && !isCreator && filteredCreators.length === 0 && (
+            <Card className="p-8 text-center text-gray-600 border border-gray-200">No creators found.</Card>
+          )}
 
-                      <div className="flex gap-2 mb-3">
-                        {creator.platforms.includes("youtube") && (
-                          <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-                            <Youtube className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                        {creator.platforms.includes("instagram") && (
-                          <div className="w-8 h-8 bg-pink-100 rounded-lg flex items-center justify-center">
-                            <Instagram className="w-4 h-4 text-pink-600" />
-                          </div>
-                        )}
-                        {creator.platforms.includes("twitter") && (
-                          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                            <Twitter className="w-4 h-4 text-blue-600" />
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex gap-2 mb-4 flex-wrap">
-                        {creator.categories.map((cat) => (
-                          <Badge
-                            key={`all-${creator.id}-${cat}`}
-                            variant="secondary"
-                            className="bg-[#EFF6FF] text-[#3B82F6] text-xs"
-                          >
-                            {cat}
-                          </Badge>
-                        ))}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <p className="text-xs text-gray-600 mb-1">
-                            Match Score
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-[#3B82F6] rounded-full"
-                                style={{ width: `${creator.matchScore}%` }}
-                              />
-                            </div>
-                            <span className="text-sm font-semibold text-gray-900">
-                              {creator.matchScore}%
-                            </span>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-600 mb-1">
-                            Predicted CTR
-                          </p>
-                          <p className="text-sm font-semibold text-gray-900">
-                            {creator.predictedCTR}
-                          </p>
-                        </div>
-                      </div>
-
-                      <Link to={`/match/${creator.id}`}>
-                        <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">
-                          View Details
-                        </Button>
-                      </Link>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-
-            {filteredProfiles.length === 0 && (
-              <div className="mt-6 text-sm text-gray-600">
-                No creators found for “{query}”.
-              </div>
-            )}
-          </div>
-
-          {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Audience Demographics */}
-            <Card className="p-6 bg-white border border-gray-200 rounded-xl">
-              <h3 className="text-lg font-semibold text-gray-900 mb-6">
-                Target Audience Demographics
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={audienceData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
-                    }
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {audienceData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </Card>
-
-            {/* Performance Prediction */}
-            <Card className="p-6 bg-white border border-gray-200 rounded-xl">
-              <h3 className="text-lg font-semibold text-gray-900 mb-6">
-                Performance Prediction vs Actual
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={performanceData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                  <XAxis dataKey="name" stroke="#6B7280" />
-                  <YAxis stroke="#6B7280" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "white",
-                      border: "1px solid #E5E7EB",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Bar
-                    dataKey="predicted"
-                    fill="#3B82F6"
-                    radius={[8, 8, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="actual"
-                    fill="#1E3A8A"
-                    radius={[8, 8, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="flex justify-center gap-6 mt-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-[#3B82F6] rounded-full" />
-                  <span className="text-sm text-gray-600">Predicted CTR</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-[#1E3A8A] rounded-full" />
-                  <span className="text-sm text-gray-600">Actual CTR</span>
-                </div>
-              </div>
-            </Card>
-          </div>
         </div>
       </main>
     </div>
