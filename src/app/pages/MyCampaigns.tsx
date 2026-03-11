@@ -52,7 +52,7 @@ const DEFAULT_FORM: OfferForm = {
   campaignEndDate: "",
 };
 
-const STATUS_OPTIONS = ["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"] as const;
+const STATUS_OPTIONS = ["DRAFT", "ACTIVE", "ARCHIVED"] as const;
 
 function buildUrl(path: string, params?: Record<string, string>) {
   const apiBase = getApiBaseUrl();

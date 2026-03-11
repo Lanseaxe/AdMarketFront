@@ -6,7 +6,6 @@ import {
   Sparkles,
   Mail,
   Lock,
-  User,
   ArrowRight,
   Building2,
   Video,
@@ -55,13 +54,8 @@ function getErrorMessage(status: number, data: unknown) {
   return `Registration failed (HTTP ${status}).`;
 }
 
-function saveAuthMeta(role: Role, fullName: string) {
+function saveAuthMeta(role: Role) {
   localStorage.setItem("role", role);
-
-  const trimmedName = fullName.trim();
-  if (trimmedName) {
-    localStorage.setItem("fullName", trimmedName);
-  }
 }
 
 async function registerRequest(payload: {
@@ -106,7 +100,6 @@ async function registerRequest(payload: {
 export default function SignUp() {
   const navigate = useNavigate();
 
-  const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<Role>("CREATOR");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -231,7 +224,7 @@ export default function SignUp() {
 
                   storeAuthTokens(tokens);
                   await syncCurrentUserFromApi();
-                  saveAuthMeta(role, fullName);
+                  saveAuthMeta(role);
 
                   navigate("/confirm-email", {
                     state: { email: normalizedEmail },
@@ -280,23 +273,6 @@ export default function SignUp() {
                     </div>
                     <div className="mt-1 text-xs text-gray-600">I represent a business hiring creators</div>
                   </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  {role === "COMPANY" ? "Company name" : "Full name"}
-                </label>
-                <div className="mt-2 relative">
-                  <User className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    required
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder={role === "COMPANY" ? "Acme Inc." : "John Doe"}
-                    className="w-full border border-gray-200 rounded-xl px-10 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
-                  />
                 </div>
               </div>
 

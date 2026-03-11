@@ -14,6 +14,8 @@ import ConfirmEmail from "./pages/ConfirmEmail";
 import ForgotPasswordRequest from "./pages/ForgotPasswordRequest";
 import ForgotPasswordReset from "./pages/ForgotPasswordReset";
 import ProfileSettings from "./pages/ProfileSettings";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentFailed from "./pages/PaymentFailed";
 
 export const router = createBrowserRouter([
   {
@@ -40,6 +42,14 @@ export const router = createBrowserRouter([
   {
     path: "/confirm-email",
     Component: ConfirmEmail,
+  },
+  {
+    path: "/payment/success",
+    Component: PaymentSuccess,
+  },
+  {
+    path: "/payment/failed",
+    Component: PaymentFailed,
   },
 
   {

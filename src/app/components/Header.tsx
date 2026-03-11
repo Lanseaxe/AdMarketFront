@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
 import { CircleUserRound, LogOut, User } from "lucide-react";
 import {
+  AUTH_STATE_CHANGED_EVENT,
   clearAuthSession,
   getAccessToken,
   setPendingProfileRedirect,
@@ -17,6 +18,7 @@ export default function Header() {
   useEffect(() => {
     const syncAuth = () => setIsAuthenticated(Boolean(getAccessToken()));
     const onStorage = () => syncAuth();
+    const onAuthStateChanged = () => syncAuth();
     const onWindowFocus = () => syncAuth();
     const onWindowClick = (event: MouseEvent) => {
       if (!menuRef.current) return;
@@ -26,10 +28,12 @@ export default function Header() {
     };
 
     window.addEventListener("storage", onStorage);
+    window.addEventListener(AUTH_STATE_CHANGED_EVENT, onAuthStateChanged);
     window.addEventListener("focus", onWindowFocus);
     window.addEventListener("click", onWindowClick);
     return () => {
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener(AUTH_STATE_CHANGED_EVENT, onAuthStateChanged);
       window.removeEventListener("focus", onWindowFocus);
       window.removeEventListener("click", onWindowClick);
     };
@@ -65,7 +69,11 @@ export default function Header() {
         
         <nav className="hidden md:flex items-center gap-8">
           <Link to="/" className="text-gray-600 hover:text-[#1E3A8A] transition-colors">Home</Link>
-          <Link to="/dashboard" className="text-gray-600 hover:text-[#1E3A8A] transition-colors">Dashboard</Link>
+          {isAuthenticated && (
+            <Link to="/dashboard" className="text-gray-600 hover:text-[#1E3A8A] transition-colors">
+              Dashboard
+            </Link>
+          )}
           <a href="#features" className="text-gray-600 hover:text-[#1E3A8A] transition-colors">Features</a>
           <a href="#pricing" className="text-gray-600 hover:text-[#1E3A8A] transition-colors">Pricing</a>
         </nav>

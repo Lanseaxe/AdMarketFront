@@ -4,7 +4,7 @@ import Sidebar from "../components/Sidebar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, Mail, Users, Eye, BarChart3 } from "lucide-react";
+import { ArrowLeft, Mail, Users, Eye, BarChart3, Globe2, Layers3, MonitorPlay } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
 
 type CreatorDetails = {
@@ -19,6 +19,42 @@ type CreatorDetails = {
   avgViews: number;
   engagementRate: number;
   contactEmail: string;
+};
+
+type CreatorPlatform = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  creator: string;
+  platform: string;
+  profileUrl: string;
+  followersCount: number;
+  avgViews: number;
+};
+
+type CreatorAudienceAge = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  creator: string;
+  ageBegin: number;
+  ageEnd: number;
+  percentage: number;
+};
+
+type CreatorAudienceGeo = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  creator: string;
+  country: { id: number; name: string; code: string };
+  percentage: number;
+};
+
+type CreatorFullProfile = CreatorDetails & {
+  platforms?: CreatorPlatform[];
+  audienceAges?: CreatorAudienceAge[];
+  audienceGeos?: CreatorAudienceGeo[];
 };
 
 async function fetchCreatorById(id: string): Promise<CreatorDetails> {
@@ -37,9 +73,25 @@ async function fetchCreatorById(id: string): Promise<CreatorDetails> {
   return data as CreatorDetails;
 }
 
+async function fetchCreatorByUserId(userId: number): Promise<CreatorFullProfile> {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+
+  const res = await fetchWithAuthRetry(`${apiBase}/api/v1/creator/user/${userId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  const data = await parseBodySafe(res);
+  if (!res.ok) throw new Error(`Failed to load creator details (HTTP ${res.status})`);
+  if (!data || typeof data !== "object") throw new Error("Invalid creator details response.");
+
+  return data as CreatorFullProfile;
+}
+
 export default function CreatorProfile() {
   const { id } = useParams();
-  const [creator, setCreator] = useState<CreatorDetails | null>(null);
+  const [creator, setCreator] = useState<CreatorFullProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,7 +104,8 @@ export default function CreatorProfile() {
         return;
       }
       try {
-        const result = await fetchCreatorById(id);
+        const basicProfile = await fetchCreatorById(id);
+        const result = await fetchCreatorByUserId(basicProfile.userId);
         if (!active) return;
         setCreator(result);
       } catch (err: any) {
@@ -130,6 +183,74 @@ export default function CreatorProfile() {
                   Contact Email
                 </div>
                 <div className="text-gray-900">{creator.contactEmail || "N/A"}</div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <Card className="p-5 border border-gray-200 rounded-xl bg-[#FBFCFE]">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-4">
+                    <MonitorPlay className="w-4 h-4" />
+                    Platform Breakdown
+                  </div>
+                  <div className="space-y-3">
+                    {creator.platforms && creator.platforms.length > 0 ? (
+                      creator.platforms.map((platform) => (
+                        <div key={platform.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-medium text-gray-900">{platform.platform}</div>
+                            <div className="text-xs text-gray-500">{platform.followersCount} followers</div>
+                          </div>
+                          <div className="mt-1 text-sm text-gray-600">Avg views: {platform.avgViews}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-gray-500">No platform data provided.</div>
+                    )}
+                  </div>
+                </Card>
+
+                <Card className="p-5 border border-gray-200 rounded-xl bg-[#FBFCFE]">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-4">
+                    <Layers3 className="w-4 h-4" />
+                    Audience Age
+                  </div>
+                  <div className="space-y-3">
+                    {creator.audienceAges && creator.audienceAges.length > 0 ? (
+                      creator.audienceAges.map((age) => (
+                        <div key={age.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-medium text-gray-900">
+                              {age.ageBegin}-{age.ageEnd}
+                            </div>
+                            <div className="text-sm text-[#1E3A8A] font-medium">{age.percentage}%</div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-gray-500">No audience age data provided.</div>
+                    )}
+                  </div>
+                </Card>
+
+                <Card className="p-5 border border-gray-200 rounded-xl bg-[#FBFCFE]">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-4">
+                    <Globe2 className="w-4 h-4" />
+                    Audience Country
+                  </div>
+                  <div className="space-y-3">
+                    {creator.audienceGeos && creator.audienceGeos.length > 0 ? (
+                      creator.audienceGeos.map((geo) => (
+                        <div key={geo.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-medium text-gray-900">{geo.country?.name || "Unknown"}</div>
+                            <div className="text-sm text-[#1E3A8A] font-medium">{geo.percentage}%</div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-gray-500">No audience country data provided.</div>
+                    )}
+                  </div>
+                </Card>
               </div>
             </Card>
           )}

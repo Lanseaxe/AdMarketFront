@@ -4,7 +4,15 @@ import Sidebar from "../components/Sidebar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { Search, Filter, SlidersHorizontal } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import { Search, Filter, SlidersHorizontal, Sparkles } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
 import { syncCurrentUserFromApi } from "../lib/user-session";
 
@@ -110,6 +118,22 @@ async function fetchPaged<T>(url: string): Promise<PageResponse<T>> {
   return data as PageResponse<T>;
 }
 
+async function createPaymentCheckout(): Promise<string> {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+
+  const res = await fetchWithAuthRetry(`${apiBase}/api/v1/payment/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  const data = await parseBodySafe(res);
+  if (!res.ok) throw new Error(`Failed to create checkout session (HTTP ${res.status})`);
+
+  if (typeof data === "string" && data.trim()) return data.trim();
+  throw new Error("Backend did not return a Stripe checkout link.");
+}
+
 export default function Dashboard() {
   const [role, setRole] = useState(localStorage.getItem("role"));
   const isCreator = role === "CREATOR";
@@ -131,6 +155,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [startingCheckout, setStartingCheckout] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -164,10 +190,9 @@ export default function Dashboard() {
             if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
             const page = await fetchPaged<OfferItem>(url);
             if (!active) return;
-            const all = Array.isArray(page.content) ? page.content : [];
-            const activeOffers = all.filter((o) => o.status?.toUpperCase() === "ACTIVE");
-            setOffers(activeOffers);
-            setTotalCount(activeOffers.length);
+            const allOffers = Array.isArray(page.content) ? page.content : [];
+            setOffers(allOffers);
+            setTotalCount(page.totalElements || allOffers.length);
           }
         } else {
           const url = buildPagedUrl("/api/v1/creator", 0, 100, creatorSort);
@@ -242,14 +267,27 @@ export default function Dashboard() {
       <Sidebar />
 
       <main className="flex-1 p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard Overview</h1>
-            <p className="text-gray-600">
-              {isCreator
-                ? "Discover companies and partnership opportunities."
-                : "Discover creators for your campaigns."}
-            </p>
+        <div className={`max-w-7xl mx-auto transition ${paymentDialogOpen ? "blur-sm" : ""}`}>
+          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard Overview</h1>
+              <p className="text-gray-600">
+                {isCreator
+                  ? "Discover companies and partnership opportunities."
+                  : "Discover creators for your campaigns."}
+              </p>
+            </div>
+
+            {!isCreator && (
+              <Button
+                type="button"
+                onClick={() => setPaymentDialogOpen(true)}
+                className="bg-[#1E3A8A] hover:bg-[#1E3A8A]/90"
+              >
+                <Sparkles className="w-4 h-4 mr-2" />
+                Buy AdMarket+
+              </Button>
+            )}
           </div>
 
           <Card className="p-6 bg-white border border-gray-200 rounded-xl mb-6">
@@ -298,7 +336,7 @@ export default function Dashboard() {
                         className="mt-1 w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
                       >
                         <option value="companies">Companies</option>
-                        <option value="offers">Active offers</option>
+                        <option value="offers">All offers</option>
                       </select>
                     </div>
                   )}
@@ -546,7 +584,7 @@ export default function Dashboard() {
           )}
 
           {!loading && !error && isCreator && creatorViewMode === "offers" && filteredOffers.length === 0 && (
-            <Card className="p-8 text-center text-gray-600 border border-gray-200">No active offers found.</Card>
+            <Card className="p-8 text-center text-gray-600 border border-gray-200">No offers found.</Card>
           )}
 
           {!loading && !error && !isCreator && filteredCreators.length === 0 && (
@@ -554,6 +592,46 @@ export default function Dashboard() {
           )}
 
         </div>
+
+        <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+          <DialogContent className="rounded-2xl border border-gray-200 bg-white p-8 shadow-2xl sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Buy AdMarket+</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to buy AdMarket+?
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="rounded-xl border border-blue-100 bg-[#EFF6FF] p-4 text-sm text-[#1E3A8A]">
+              Premium subscription unlocks the Stripe checkout flow for your company account.
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={startingCheckout}
+                className="bg-[#1E3A8A] hover:bg-[#1E3A8A]/90"
+                onClick={async () => {
+                  try {
+                    setStartingCheckout(true);
+                    const checkoutUrl = await createPaymentCheckout();
+                    window.location.href = checkoutUrl;
+                  } catch (err: any) {
+                    setError(err?.message || "Failed to start payment.");
+                    setPaymentDialogOpen(false);
+                  } finally {
+                    setStartingCheckout(false);
+                  }
+                }}
+              >
+                {startingCheckout ? "Redirecting..." : "Continue to Stripe"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

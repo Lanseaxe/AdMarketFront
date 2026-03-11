@@ -9,10 +9,26 @@ type PendingProfileRedirect = {
 };
 
 const PENDING_PROFILE_KEY = "pendingProfileRedirect";
+export const AUTH_STATE_CHANGED_EVENT = "auth-state-changed";
+
+function notifyAuthStateChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_STATE_CHANGED_EVENT));
+  }
+}
+
+function clearStoredProfiles() {
+  localStorage.removeItem("companyProfile");
+  localStorage.removeItem("creatorProfile");
+  localStorage.removeItem("companyProfileCompleted");
+  localStorage.removeItem("creatorProfileCompleted");
+}
 
 export function storeAuthTokens(tokens: AuthTokens) {
+  clearStoredProfiles();
   localStorage.setItem("accessToken", tokens.accessToken);
   localStorage.setItem("refreshToken", tokens.refreshToken);
+  notifyAuthStateChanged();
 }
 
 export function getAccessToken() {
@@ -26,10 +42,12 @@ export function getRefreshToken() {
 export function clearAuthTokens() {
   localStorage.removeItem("accessToken");
   localStorage.removeItem("refreshToken");
+  notifyAuthStateChanged();
 }
 
 export function clearAuthSession() {
   clearAuthTokens();
+  clearStoredProfiles();
   localStorage.removeItem("rememberMe");
   localStorage.removeItem("role");
   localStorage.removeItem("status");
@@ -37,6 +55,7 @@ export function clearAuthSession() {
   localStorage.removeItem("email");
   localStorage.removeItem("fullName");
   localStorage.removeItem("profileCompleted");
+  notifyAuthStateChanged();
 }
 
 export function setPendingProfileRedirect(email: string, role: string) {

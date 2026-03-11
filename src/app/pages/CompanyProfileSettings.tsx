@@ -99,6 +99,24 @@ async function updateCompanyProfile(userId: number, payload: {
   return data as CompanyProfileResponse;
 }
 
+async function fetchCompanyProfileByUser(userId: number): Promise<CompanyProfileResponse | null> {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+
+  const res = await fetchWithAuthRetry(`${apiBase}/api/v1/company/user/${userId}`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await parseBodySafe(res);
+
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(getErrorMessage(res.status, data, "Failed to load company profile"));
+  if (!data || typeof data !== "object") {
+    throw new Error("Backend returned an invalid company profile response.");
+  }
+
+  return data as CompanyProfileResponse;
+}
+
 function normalizeWebsite(raw: string) {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -146,23 +164,48 @@ export default function CompanyProfile() {
         ]);
 
         if (!active) return;
-        setIndustries(Array.isArray(industryList) ? industryList : []);
-        setCountries(Array.isArray(countryList) ? countryList : []);
+        const normalizedIndustries = Array.isArray(industryList) ? industryList : [];
+        const normalizedCountries = Array.isArray(countryList) ? countryList : [];
+        setIndustries(normalizedIndustries);
+        setCountries(normalizedCountries);
 
-        const cached = localStorage.getItem("companyProfile");
-        if (cached) {
-          try {
-            const parsed = JSON.parse(cached) as Record<string, unknown>;
-            if (typeof parsed.companyName === "string") setName(parsed.companyName);
-            if (typeof parsed.description === "string") setBio(parsed.description);
-            if (typeof parsed.websiteUrl === "string") setWebsite(parsed.websiteUrl);
-            if (typeof parsed.industryId === "number") setIndustryId(String(parsed.industryId));
-            if (typeof parsed.countryId === "number") setCountryId(String(parsed.countryId));
-            if (typeof parsed.minBudget === "number") setMinBudget(String(parsed.minBudget));
-            if (typeof parsed.maxBudget === "number") setMaxBudget(String(parsed.maxBudget));
-          } catch {
-            // ignore broken cache
-          }
+        if (isCompany && Number.isFinite(userId)) {
+          const profile = await fetchCompanyProfileByUser(userId);
+          if (!active || !profile) return;
+
+          const matchedIndustry = normalizedIndustries.find(
+            (item) => item.name === profile.industryName,
+          );
+          const normalizedProfileCache = {
+            id: profile.id,
+            userId: profile.userId,
+            companyName: profile.companyName,
+            description: profile.description,
+            websiteUrl: profile.websiteUrl,
+            industryId: matchedIndustry?.id ?? 0,
+            industryName: profile.industryName,
+            countryId: profile.country.id,
+            countryName: profile.country.name,
+            minBudget: profile.minBudget,
+            maxBudget: profile.maxBudget,
+          };
+
+          localStorage.setItem("companyProfile", JSON.stringify(normalizedProfileCache));
+          localStorage.setItem("companyProfileCompleted", "true");
+          localStorage.setItem("profileCompleted", "true");
+          localStorage.setItem("fullName", profile.companyName);
+
+          setName(profile.companyName);
+          setBio(profile.description || "");
+          setWebsite(profile.websiteUrl || "");
+          setIndustryId(normalizedProfileCache.industryId ? String(normalizedProfileCache.industryId) : "");
+          setCountryId(String(profile.country.id));
+          setMinBudget(String(profile.minBudget ?? 0));
+          setMaxBudget(String(profile.maxBudget ?? 0));
+          setIsEditing(false);
+        } else {
+          localStorage.removeItem("companyProfile");
+          localStorage.removeItem("companyProfileCompleted");
         }
       } catch (err: any) {
         if (!active) return;
@@ -176,7 +219,7 @@ export default function CompanyProfile() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isCompany, userId]);
 
   const canSave = useMemo(() => {
     return !saving && !initLoading && isCompany && Number.isFinite(userId) && isEditing;

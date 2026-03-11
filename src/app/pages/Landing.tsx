@@ -1,4 +1,6 @@
 import { Link } from "react-router";
+import { useEffect, useState } from "react";
+import { AUTH_STATE_CHANGED_EVENT, getAccessToken } from "../lib/auth-storage";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import Header from "../components/Header";
@@ -14,6 +16,26 @@ import {
 } from "lucide-react";
 
 export default function Landing() {
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getAccessToken()));
+  const primaryStartPath = isAuthenticated ? "/dashboard" : "/signup";
+
+  useEffect(() => {
+    const syncAuth = () => setIsAuthenticated(Boolean(getAccessToken()));
+    const onStorage = () => syncAuth();
+    const onAuthStateChanged = () => syncAuth();
+    const onWindowFocus = () => syncAuth();
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(AUTH_STATE_CHANGED_EVENT, onAuthStateChanged);
+    window.addEventListener("focus", onWindowFocus);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(AUTH_STATE_CHANGED_EVENT, onAuthStateChanged);
+      window.removeEventListener("focus", onWindowFocus);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
       <Header />
@@ -38,14 +60,16 @@ export default function Landing() {
               </p>
 
               <div className="flex gap-4">
-                <Link to="/dashboard">
+                <Link to={primaryStartPath}>
                   <Button className="bg-[#1E3A8A] hover:bg-[#1E3A8A]/90 px-8 py-6 text-lg">
                     Start as Company
                   </Button>
                 </Link>
-                <Button variant="outline" className="px-8 py-6 text-lg border-2 border-[#1E3A8A] text-[#1E3A8A] hover:bg-[#EFF6FF]">
-                  Join as Creator
-                </Button>
+                <Link to={primaryStartPath}>
+                  <Button variant="outline" className="px-8 py-6 text-lg border-2 border-[#1E3A8A] text-[#1E3A8A] hover:bg-[#EFF6FF]">
+                    Join as Creator
+                  </Button>
+                </Link>
               </div>
             </div>
 
@@ -243,7 +267,7 @@ export default function Landing() {
             Join leading brands and creators using AI-powered matching
           </p>
           <div className="flex gap-4 justify-center">
-            <Link to="/dashboard">
+            <Link to={primaryStartPath}>
               <Button className="bg-white text-[#1E3A8A] hover:bg-gray-100 px-8 py-6 text-lg">
                 Get Started Free
                 <ArrowRight className="w-5 h-5 ml-2" />
