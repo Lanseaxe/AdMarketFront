@@ -94,32 +94,6 @@ async function updateOfferStatus(offerId: number, nextStatus: string): Promise<v
   await mutateJson<Offer>(urlWithStatus, "PUT");
 }
 
-async function resolveCompanyId(): Promise<number | null> {
-  const cached = localStorage.getItem("companyProfile");
-  if (cached) {
-    try {
-      const parsed = JSON.parse(cached) as { id?: number };
-      if (typeof parsed.id === "number") return parsed.id;
-    } catch {
-      // ignore
-    }
-  }
-
-  const userId = Number(localStorage.getItem("userId"));
-  if (!Number.isFinite(userId)) return null;
-
-  const url = buildUrl("/api/v1/company", {
-    page: "0",
-    size: "200",
-    sort: "createdAt,desc",
-  });
-  if (!url) return null;
-
-  const page = await getJson<{ content: Array<{ id: number; userId: number }> }>(url);
-  const matched = page.content?.find((c) => c.userId === userId);
-  return matched?.id ?? null;
-}
-
 function toPayload(form: OfferForm) {
   return {
     title: form.title.trim(),
@@ -168,26 +142,25 @@ export default function MyCampaigns() {
     setError(null);
     try {
       if (isCompany) {
-        const resolvedCompanyId = await resolveCompanyId();
-
         const categoriesUrl = buildUrl("/api/v1/category");
-        if (!categoriesUrl) throw new Error("VITE_API_URL is not set.");
-        const categoriesRes = await getJson<Category[]>(categoriesUrl);
-        setCategories(Array.isArray(categoriesRes) ? categoriesRes : []);
-
-        if (!resolvedCompanyId) {
-          setOffers([]);
-          return;
-        }
-
-        const offersUrl = buildUrl(`/api/v1/offer/company/${resolvedCompanyId}`, {
+        const offersUrl = buildUrl("/api/v1/offer/my", {
           page: "0",
           size: "200",
           sort: "createdAt,desc",
         });
-        if (!offersUrl) throw new Error("VITE_API_URL is not set.");
-        const offersRes = await getJson<OfferPage>(offersUrl);
-        const loadedOffers = Array.isArray(offersRes.content) ? offersRes.content : [];
+        if (!categoriesUrl || !offersUrl) throw new Error("VITE_API_URL is not set.");
+
+        const [categoriesRes, offersRes] = await Promise.all([
+          getJson<Category[]>(categoriesUrl),
+          getJson<OfferPage | Offer[]>(offersUrl),
+        ]);
+
+        setCategories(Array.isArray(categoriesRes) ? categoriesRes : []);
+        const loadedOffers = Array.isArray(offersRes)
+          ? offersRes
+          : Array.isArray(offersRes.content)
+            ? offersRes.content
+            : [];
         setOffers(loadedOffers);
         setStatusDraft(
           loadedOffers.reduce<Record<number, string>>((acc, offer) => {
@@ -206,8 +179,12 @@ export default function MyCampaigns() {
           sort: "createdAt,desc",
         });
         if (!offersUrl) throw new Error("VITE_API_URL is not set.");
-        const offersRes = await getJson<OfferPage>(offersUrl);
-        const loadedOffers = Array.isArray(offersRes.content) ? offersRes.content : [];
+        const offersRes = await getJson<OfferPage | Offer[]>(offersUrl);
+        const loadedOffers = Array.isArray(offersRes)
+          ? offersRes
+          : Array.isArray(offersRes.content)
+            ? offersRes.content
+            : [];
         setOffers(loadedOffers);
         return;
       }

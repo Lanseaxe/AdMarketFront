@@ -10,10 +10,18 @@ import {
 
 export default function Sidebar() {
   const location = useLocation();
+  const role = localStorage.getItem("role");
+  const isCreator = role === "CREATOR";
 
   const navItems = [
     { icon: LayoutDashboard, label: "Overview", path: "/dashboard" },
-    { icon: Megaphone, label: "My Campaigns", path: "/campaigns" },
+    ...(
+      isCreator
+        ? [
+            // { icon: Megaphone, label: "My Campaigns", path: "/campaigns" },
+          ]
+        : [{ icon: Megaphone, label: "My Campaigns", path: "/campaigns" }]
+    ),
     { icon: MessageSquare, label: "Conversations", path: "/conversations" },
     { icon: BarChart3, label: "Analytics", path: "/analytics" },
     { icon: User, label: "Profile", path: "/profile" },
