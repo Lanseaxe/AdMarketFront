@@ -18,10 +18,10 @@ export type ChatMessage = {
 };
 
 type StompClientLike = {
-  connected?: boolean;
-  disconnect: (callback?: () => void) => void;
+  activate: () => void;
+  deactivate: () => Promise<void>;
+  publish: (options: { destination: string; body: string }) => void;
   subscribe: (destination: string, callback: (message: { body: string }) => void) => { unsubscribe: () => void };
-  send: (destination: string, headers?: Record<string, string>, body?: string) => void;
 };
 
 type SocketConnection = {
@@ -155,30 +155,56 @@ export async function connectToChatSocket(options: {
   ensureBrowserGlobal();
   const [{ default: SockJS }, stompModule] = await Promise.all([
     import("sockjs-client"),
-    import("stompjs/lib/stomp.js"),
+    import("@stomp/stompjs"),
   ]);
-  const Stomp = (
+  const ClientCtor = (
     stompModule as {
-      Stomp?: { over: (socket: unknown) => StompClientLike };
-      default?: { Stomp?: { over: (socket: unknown) => StompClientLike } };
+      Client?: new (config: {
+        webSocketFactory: () => unknown;
+        connectHeaders: Record<string, string>;
+        reconnectDelay: number;
+        debug: (message: string) => void;
+        onConnect: () => void;
+        onStompError: (frame: { headers?: Record<string, string>; body?: string }) => void;
+        onWebSocketError: () => void;
+      }) => StompClientLike;
+      default?: {
+        Client?: new (config: {
+          webSocketFactory: () => unknown;
+          connectHeaders: Record<string, string>;
+          reconnectDelay: number;
+          debug: (message: string) => void;
+          onConnect: () => void;
+          onStompError: (frame: { headers?: Record<string, string>; body?: string }) => void;
+          onWebSocketError: () => void;
+        }) => StompClientLike;
+      };
     }
-  ).Stomp ?? (
+  ).Client ?? (
     stompModule as {
-      default?: { Stomp?: { over: (socket: unknown) => StompClientLike } };
+      default?: {
+        Client?: new (config: {
+          webSocketFactory: () => unknown;
+          connectHeaders: Record<string, string>;
+          reconnectDelay: number;
+          debug: (message: string) => void;
+          onConnect: () => void;
+          onStompError: (frame: { headers?: Record<string, string>; body?: string }) => void;
+          onWebSocketError: () => void;
+        }) => StompClientLike;
+      };
     }
-  ).default?.Stomp;
-  if (!Stomp?.over) {
+  ).default?.Client;
+  if (!ClientCtor) {
     throw new Error("Failed to initialize the STOMP client in the browser.");
   }
-  const socket = new SockJS(buildWebsocketUrl(apiBase));
-  const stompClient = Stomp.over(socket) as StompClientLike & { debug?: ((value: string) => void) | null };
-  stompClient.debug = null;
-
   let subscription: { unsubscribe: () => void } | null = null;
-
-  stompClient.connect(
-    { Authorization: `Bearer ${token}` },
-    () => {
+  const stompClient = new ClientCtor({
+    webSocketFactory: () => new SockJS(buildWebsocketUrl(apiBase)),
+    connectHeaders: { Authorization: `Bearer ${token}` },
+    reconnectDelay: 0,
+    debug: () => {},
+    onConnect: () => {
       subscription = stompClient.subscribe("/user/queue/messages", (frame) => {
         try {
           const parsed = ensureMessage(JSON.parse(frame.body));
@@ -192,27 +218,29 @@ export async function connectToChatSocket(options: {
 
       options.onConnect?.();
     },
-    (error: string) => {
-      options.onError?.(typeof error === "string" ? error : "WebSocket connection failed.");
+    onStompError: (frame) => {
+      options.onError?.(frame.headers?.message || frame.body || "WebSocket connection failed.");
     },
-  );
+    onWebSocketError: () => {
+      options.onError?.("WebSocket connection failed.");
+    },
+  });
+
+  stompClient.activate();
 
   return {
     send(recipientId: number, content: string) {
-      stompClient.send(
-        "/app/chat.send",
-        {},
-        JSON.stringify({
+      stompClient.publish({
+        destination: "/app/chat.send",
+        body: JSON.stringify({
           recipientId,
           content,
         }),
-      );
+      });
     },
     disconnect() {
       subscription?.unsubscribe();
-      if (stompClient.connected) {
-        stompClient.disconnect();
-      }
+      void stompClient.deactivate();
     },
   };
 }
