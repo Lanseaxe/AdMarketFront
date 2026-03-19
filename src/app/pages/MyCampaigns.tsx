@@ -4,7 +4,7 @@ import Sidebar from "../components/Sidebar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, RefreshCw, Users } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
 
 type Category = { id: number; name: string };
@@ -27,6 +27,21 @@ type Offer = {
 };
 
 type OfferPage = { content: Offer[]; totalElements: number };
+
+type OfferApplication = {
+  id: number;
+  offerId: number;
+  offerTitle: string;
+  creatorId: number;
+  creatorDisplayName: string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "WITHDRAWN" | string;
+  createdAt: string;
+};
+
+type OfferApplicationPage = {
+  content: OfferApplication[];
+  totalElements: number;
+};
 
 type OfferForm = {
   title: string;
@@ -53,6 +68,7 @@ const DEFAULT_FORM: OfferForm = {
 };
 
 const STATUS_OPTIONS = ["DRAFT", "ACTIVE", "ARCHIVED"] as const;
+const APPLICATION_STATUS_OPTIONS = ["PENDING", "ACCEPTED", "REJECTED", "WITHDRAWN"] as const;
 
 function buildUrl(path: string, params?: Record<string, string>) {
   const apiBase = getApiBaseUrl();
@@ -94,6 +110,43 @@ async function updateOfferStatus(offerId: number, nextStatus: string): Promise<v
   await mutateJson<Offer>(urlWithStatus, "PUT");
 }
 
+async function fetchOfferApplications(offerId: number): Promise<OfferApplication[]> {
+  const url = buildUrl(`/api/v1/offer-application/offer/${offerId}`, {
+    page: "0",
+    size: "200",
+    sort: "createdAt,desc",
+  });
+  if (!url) throw new Error("VITE_API_URL is not set.");
+
+  const data = await getJson<OfferApplicationPage>(url);
+  return Array.isArray(data.content) ? data.content : [];
+}
+
+async function fetchMyOfferApplications(): Promise<OfferApplication[]> {
+  const url = buildUrl("/api/v1/offer-application/my", {
+    page: "0",
+    size: "200",
+    sort: "createdAt,desc",
+  });
+  if (!url) throw new Error("VITE_API_URL is not set.");
+
+  const data = await getJson<OfferApplicationPage>(url);
+  return Array.isArray(data.content) ? data.content : [];
+}
+
+async function updateApplicationStatus(applicationId: number, nextStatus: string): Promise<OfferApplication> {
+  const url = buildUrl(`/api/v1/offer-application/${applicationId}/status`, { status: nextStatus });
+  if (!url) throw new Error("VITE_API_URL is not set.");
+  return mutateJson<OfferApplication>(url, "PUT");
+}
+
+function getApplicationBadgeClass(status: string) {
+  if (status === "ACCEPTED") return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+  if (status === "REJECTED") return "bg-red-100 text-red-700 border border-red-200";
+  if (status === "WITHDRAWN") return "bg-gray-100 text-gray-700 border border-gray-200";
+  return "bg-amber-100 text-amber-700 border border-amber-200";
+}
+
 function toPayload(form: OfferForm) {
   return {
     title: form.title.trim(),
@@ -114,6 +167,7 @@ export default function MyCampaigns() {
   const isCreator = role === "CREATOR";
 
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [myApplications, setMyApplications] = useState<OfferApplication[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +177,10 @@ export default function MyCampaigns() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<OfferForm>(DEFAULT_FORM);
   const [statusDraft, setStatusDraft] = useState<Record<number, string>>({});
+  const [applicationsByOffer, setApplicationsByOffer] = useState<Record<number, OfferApplication[]>>({});
+  const [applicationStatusDraft, setApplicationStatusDraft] = useState<Record<number, string>>({});
+  const [applicationsLoadingOfferId, setApplicationsLoadingOfferId] = useState<number | null>(null);
+  const [applicationSavingId, setApplicationSavingId] = useState<number | null>(null);
 
   const canSubmit = useMemo(() => {
     return (
@@ -168,6 +226,23 @@ export default function MyCampaigns() {
             return acc;
           }, {}),
         );
+        const applicationEntries = await Promise.all(
+          loadedOffers.map(async (offer) => [offer.id, await fetchOfferApplications(offer.id)] as const),
+        );
+        setApplicationsByOffer(
+          applicationEntries.reduce<Record<number, OfferApplication[]>>((acc, [offerId, items]) => {
+            acc[offerId] = items;
+            return acc;
+          }, {}),
+        );
+        setApplicationStatusDraft(
+          applicationEntries.reduce<Record<number, string>>((acc, [, items]) => {
+            items.forEach((item) => {
+              acc[item.id] = item.status;
+            });
+            return acc;
+          }, {}),
+        );
         return;
       }
 
@@ -179,18 +254,23 @@ export default function MyCampaigns() {
           sort: "createdAt,desc",
         });
         if (!offersUrl) throw new Error("VITE_API_URL is not set.");
-        const offersRes = await getJson<OfferPage | Offer[]>(offersUrl);
+        const [offersRes, applicationsRes] = await Promise.all([
+          getJson<OfferPage | Offer[]>(offersUrl),
+          fetchMyOfferApplications(),
+        ]);
         const loadedOffers = Array.isArray(offersRes)
           ? offersRes
           : Array.isArray(offersRes.content)
             ? offersRes.content
             : [];
         setOffers(loadedOffers);
+        setMyApplications(applicationsRes);
         return;
       }
 
       setCategories([]);
       setOffers([]);
+      setMyApplications([]);
     } catch (err: any) {
       setError(err?.message || "Failed to load campaigns.");
     } finally {
@@ -292,6 +372,50 @@ export default function MyCampaigns() {
     }
   };
 
+  const refreshOfferApplications = async (offerId: number) => {
+    try {
+      setApplicationsLoadingOfferId(offerId);
+      const items = await fetchOfferApplications(offerId);
+      setApplicationsByOffer((prev) => ({
+        ...prev,
+        [offerId]: items,
+      }));
+      setApplicationStatusDraft((prev) => {
+        const next = { ...prev };
+        items.forEach((item) => {
+          next[item.id] = item.status;
+        });
+        return next;
+      });
+    } catch (err: any) {
+      setError(err?.message || "Failed to load applications.");
+    } finally {
+      setApplicationsLoadingOfferId(null);
+    }
+  };
+
+  const changeApplicationStatus = async (offerId: number, applicationId: number) => {
+    try {
+      const nextStatus = applicationStatusDraft[applicationId];
+      if (!nextStatus) throw new Error("Select application status first.");
+
+      setApplicationSavingId(applicationId);
+      const updated = await updateApplicationStatus(applicationId, nextStatus);
+      setApplicationsByOffer((prev) => ({
+        ...prev,
+        [offerId]: (prev[offerId] || []).map((item) => (item.id === applicationId ? updated : item)),
+      }));
+      setApplicationStatusDraft((prev) => ({
+        ...prev,
+        [applicationId]: updated.status,
+      }));
+    } catch (err: any) {
+      setError(err?.message || "Failed to update application status.");
+    } finally {
+      setApplicationSavingId(null);
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-[#F9FAFB]">
       <Sidebar />
@@ -312,7 +436,7 @@ export default function MyCampaigns() {
                 <p className="text-sm text-gray-600 mt-1">
                   {isCompany
                     ? "Create and manage campaign offers. Only ACTIVE offers are visible to other users."
-                    : "Campaign list available for your creator account."}
+                    : "Track the offers you applied to and monitor each application status."}
                 </p>
               </div>
               {isCompany && (
@@ -325,8 +449,8 @@ export default function MyCampaigns() {
           </Card>
 
           {isCreator && (
-            <Card className="p-4 mb-4 border border-orange-200 bg-orange-50 text-orange-800">
-              Creator accounts have read-only campaign access.
+            <Card className="p-4 mb-4 border border-blue-200 bg-blue-50 text-blue-800">
+              Creator accounts can review their submitted applications here.
             </Card>
           )}
 
@@ -464,6 +588,74 @@ export default function MyCampaigns() {
 
           {loading ? (
             <Card className="p-6 border border-gray-200">Loading campaigns...</Card>
+          ) : isCreator ? (
+            myApplications.length === 0 ? (
+              <Card className="p-6 border border-gray-200 text-gray-600">
+                You have not applied to any offers yet.
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {myApplications.map((application) => {
+                  const offer = offers.find((item) => item.id === application.offerId);
+
+                  return (
+                    <Card key={application.id} className="p-5 bg-white border border-gray-200 rounded-xl">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                        <div className="flex-1">
+                          <div className="mb-2 flex items-center gap-2">
+                            <h3 className="text-lg font-semibold text-gray-900">
+                              {offer?.title || application.offerTitle || `Offer #${application.offerId}`}
+                            </h3>
+                            <Badge className={getApplicationBadgeClass(application.status)}>
+                              {application.status}
+                            </Badge>
+                          </div>
+
+                          <p className="mb-2 text-sm text-gray-700">
+                            {offer?.description || "Offer details are not available in this view."}
+                          </p>
+
+                          <div className="text-sm text-gray-600">
+                            Company: {offer?.company?.companyName || "Unknown company"}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Category: {offer?.category?.name || "N/A"} | Budget:{" "}
+                            {offer ? `${offer.budget} ${offer.currency}` : "N/A"}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Applied: {new Date(application.createdAt).toLocaleDateString()}
+                          </div>
+                          {offer && (
+                            <div className="text-sm text-gray-600">
+                              Campaign dates: {offer.campaignStartDate} to {offer.campaignEndDate}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="w-full md:w-[260px] space-y-3">
+                          <div className="rounded-xl border border-gray-200 bg-[#F9FAFB] p-4">
+                            <div className="text-xs uppercase tracking-wide text-gray-500">Application Status</div>
+                            <div className="mt-2 text-lg font-semibold text-gray-900">{application.status}</div>
+                          </div>
+
+                          {offer?.company?.id ? (
+                            <Link to={`/company/${offer.company.id}`} className="block">
+                              <Button variant="outline" className="w-full">
+                                View Company
+                              </Button>
+                            </Link>
+                          ) : (
+                            <Button disabled variant="outline" className="w-full">
+                              Company unavailable
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )
           ) : offers.length === 0 ? (
             <Card className="p-6 border border-gray-200 text-gray-600">No campaigns yet.</Card>
           ) : (
@@ -495,39 +687,110 @@ export default function MyCampaigns() {
                     </div>
 
                     {isCompany && (
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" onClick={() => openEdit(offer)} disabled={formOpen}>
-                          <Pencil className="w-4 h-4 mr-2" />
-                          Edit
-                        </Button>
-                        <select
-                          value={statusDraft[offer.id] || offer.status || "DRAFT"}
-                          onChange={(e) =>
-                            setStatusDraft((prev) => ({
-                              ...prev,
-                              [offer.id]: e.target.value,
-                            }))
-                          }
-                          className="h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
-                        >
-                          {STATUS_OPTIONS.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                        <Button variant="outline" onClick={() => changeStatus(offer.id)}>
-                          <RefreshCw className="w-4 h-4 mr-2" />
-                          Update Status
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="text-red-600"
-                          onClick={() => deleteOffer(offer.id)}
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete
-                        </Button>
+                      <div className="w-full md:w-[340px] space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" onClick={() => openEdit(offer)} disabled={formOpen}>
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Edit
+                          </Button>
+                          <select
+                            value={statusDraft[offer.id] || offer.status || "DRAFT"}
+                            onChange={(e) =>
+                              setStatusDraft((prev) => ({
+                                ...prev,
+                                [offer.id]: e.target.value,
+                              }))
+                            }
+                            className="h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                          >
+                            {STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                          <Button variant="outline" onClick={() => changeStatus(offer.id)}>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Update Status
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="text-red-600"
+                            onClick={() => deleteOffer(offer.id)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete
+                          </Button>
+                        </div>
+
+                        <div className="rounded-xl border border-gray-200 bg-[#F9FAFB] p-4">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-[#1E3A8A]" />
+                              <span className="font-medium text-gray-900">Applications</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              className="h-8 px-2 text-sm"
+                              disabled={applicationsLoadingOfferId === offer.id}
+                              onClick={() => void refreshOfferApplications(offer.id)}
+                            >
+                              Refresh
+                            </Button>
+                          </div>
+
+                          {applicationsLoadingOfferId === offer.id && (
+                            <div className="text-sm text-gray-500">Loading applications...</div>
+                          )}
+
+                          {applicationsLoadingOfferId !== offer.id && (applicationsByOffer[offer.id] || []).length === 0 && (
+                            <div className="text-sm text-gray-500">No applications yet.</div>
+                          )}
+
+                          <div className="space-y-3">
+                            {(applicationsByOffer[offer.id] || []).map((application) => (
+                              <div key={application.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="font-medium text-gray-900">{application.creatorDisplayName}</div>
+                                    <div className="text-xs text-gray-500">
+                                      Applied {new Date(application.createdAt).toLocaleDateString()}
+                                    </div>
+                                  </div>
+                                  <Badge className={getApplicationBadgeClass(application.status)}>
+                                    {application.status}
+                                  </Badge>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  <select
+                                    value={applicationStatusDraft[application.id] || application.status}
+                                    onChange={(e) =>
+                                      setApplicationStatusDraft((prev) => ({
+                                        ...prev,
+                                        [application.id]: e.target.value,
+                                      }))
+                                    }
+                                    className="h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                                  >
+                                    {APPLICATION_STATUS_OPTIONS.map((status) => (
+                                      <option key={status} value={status}>
+                                        {status}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <Button
+                                    variant="outline"
+                                    disabled={applicationSavingId === application.id}
+                                    onClick={() => void changeApplicationStatus(offer.id, application.id)}
+                                  >
+                                    {applicationSavingId === application.id ? "Saving..." : "Update"}
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

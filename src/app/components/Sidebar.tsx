@@ -15,15 +15,9 @@ export default function Sidebar() {
 
   const navItems = [
     { icon: LayoutDashboard, label: "Overview", path: "/dashboard" },
-    ...(
-      isCreator
-        ? [
-            // { icon: Megaphone, label: "My Campaigns", path: "/campaigns" },
-          ]
-        : [{ icon: Megaphone, label: "My Campaigns", path: "/campaigns" }]
-    ),
+    { icon: Megaphone, label: "My Campaigns", path: "/campaigns" },
     { icon: MessageSquare, label: "Conversations", path: "/conversations" },
-    { icon: BarChart3, label: "Analytics", path: "/analytics" },
+    ...(isCreator ? [] : [{ icon: BarChart3, label: "Analytics", path: "/analytics" }]),
     { icon: User, label: "Profile", path: "/profile" },
   ];
 

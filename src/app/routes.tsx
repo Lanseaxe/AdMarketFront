@@ -5,6 +5,7 @@ import CreatorProfile from "./pages/CreatorProfile";
 import CompanyPublicProfile from "./pages/CompanyPublicProfile";
 import MatchExplanation from "./pages/MatchExplanation";
 import Conversations from "./pages/Conversations";
+import ConversationDetails from "./pages/ConversationDetails";
 import NotFound from "./pages/NotFound";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import MyCampaigns from "./pages/MyCampaigns";
@@ -16,6 +17,7 @@ import ForgotPasswordReset from "./pages/ForgotPasswordReset";
 import ProfileSettings from "./pages/ProfileSettings";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentFailed from "./pages/PaymentFailed";
+import Analytics from "./pages/Analytics";
 
 export const router = createBrowserRouter([
   {
@@ -72,6 +74,10 @@ export const router = createBrowserRouter([
     path: "/conversations",
     Component: Conversations,
   },
+  {
+    path: "/conversations/:userId",
+    Component: ConversationDetails,
+  },
 
   {
     path: "/campaigns",
@@ -88,12 +94,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/analytics",
-    element: (
-      <PlaceholderPage
-        title="Analytics"
-        description="Detailed analytics and reporting features coming soon. View key metrics on the Dashboard."
-      />
-    ),
+    Component: Analytics,
   },
   {
     path: "/profile",

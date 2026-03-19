@@ -15,6 +15,7 @@ import {
 import { Search, Filter, SlidersHorizontal, Sparkles } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
 import { syncCurrentUserFromApi } from "../lib/user-session";
+import type { ChatParticipant } from "../lib/chat";
 
 type CreatorItem = {
   id: number;
@@ -57,6 +58,16 @@ type OfferItem = {
   status: string;
   category?: { id: number; name: string };
   company?: { id: number; companyName: string };
+};
+
+type OfferApplication = {
+  id: number;
+  offerId: number;
+  offerTitle: string;
+  creatorId: number;
+  creatorDisplayName: string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "WITHDRAWN" | string;
+  createdAt: string;
 };
 
 type PageResponse<T> = {
@@ -134,6 +145,55 @@ async function createPaymentCheckout(): Promise<string> {
   throw new Error("Backend did not return a Stripe checkout link.");
 }
 
+async function fetchMyOfferApplications(): Promise<OfferApplication[]> {
+  const url = buildPagedUrl("/api/v1/offer-application/my", 0, 200, "createdAt,desc");
+  if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+  const page = await fetchPaged<OfferApplication>(url);
+  return Array.isArray(page.content) ? page.content : [];
+}
+
+async function createOfferApplication(offerId: number, coverLetter: string): Promise<OfferApplication> {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+
+  const res = await fetchWithAuthRetry(`${apiBase}/api/v1/offer-application`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      offerId,
+      coverLetter,
+    }),
+  });
+
+  const data = await parseBodySafe(res);
+  if (!res.ok) throw new Error(`Failed to apply to offer (HTTP ${res.status})`);
+  if (!data || typeof data !== "object") throw new Error("Invalid offer application response.");
+  return data as OfferApplication;
+}
+
+async function deleteOfferApplication(applicationId: number): Promise<void> {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
+
+  const res = await fetchWithAuthRetry(`${apiBase}/api/v1/offer-application/${applicationId}`, {
+    method: "DELETE",
+  });
+
+  if (!res.ok) {
+    const data = await parseBodySafe(res);
+    throw new Error(
+      typeof data === "string" && data ? data : `Failed to withdraw application (HTTP ${res.status})`,
+    );
+  }
+}
+
+function getApplicationBadgeClass(status: string) {
+  if (status === "ACCEPTED") return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+  if (status === "REJECTED") return "bg-red-100 text-red-700 border border-red-200";
+  if (status === "WITHDRAWN") return "bg-gray-100 text-gray-700 border border-gray-200";
+  return "bg-amber-100 text-amber-700 border border-amber-200";
+}
+
 export default function Dashboard() {
   const [role, setRole] = useState(localStorage.getItem("role"));
   const isCreator = role === "CREATOR";
@@ -157,6 +217,30 @@ export default function Dashboard() {
   const [totalCount, setTotalCount] = useState(0);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [startingCheckout, setStartingCheckout] = useState(false);
+  const [applications, setApplications] = useState<OfferApplication[]>([]);
+  const [applyDialogOffer, setApplyDialogOffer] = useState<OfferItem | null>(null);
+  const [coverLetter, setCoverLetter] = useState("");
+  const [applySubmitting, setApplySubmitting] = useState(false);
+  const [applicationBusyId, setApplicationBusyId] = useState<number | null>(null);
+
+  const buildConversationState = (
+    userId: number,
+    role: "COMPANY" | "CREATOR",
+    participantName: string,
+    email?: string,
+  ) => {
+    const participant: ChatParticipant = {
+      id: userId,
+      email: email || `${participantName} (${role})`,
+      role,
+      status: "ACTIVE",
+    };
+
+    return {
+      participant,
+      participantName,
+    };
+  };
 
   useEffect(() => {
     let active = true;
@@ -188,10 +272,14 @@ export default function Dashboard() {
           } else {
             const url = buildPagedUrl("/api/v1/offer", 0, 200, offerSort);
             if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
-            const page = await fetchPaged<OfferItem>(url);
+            const [page, myApplications] = await Promise.all([
+              fetchPaged<OfferItem>(url),
+              fetchMyOfferApplications(),
+            ]);
             if (!active) return;
             const allOffers = Array.isArray(page.content) ? page.content : [];
             setOffers(allOffers);
+            setApplications(myApplications);
             setTotalCount(page.totalElements || allOffers.length);
           }
         } else {
@@ -233,7 +321,7 @@ export default function Dashboard() {
   const filteredCreators = useMemo(() => {
     const q = query.trim().toLowerCase();
     return creators.filter((item) => {
-      const byName = item.displayName.toLowerCase().includes(q);
+      const byName = (item.displayName || "").toLowerCase().includes(q);
       const byCategory =
         creatorCategoryFilter === "ALL" || item.primaryCategoryName === creatorCategoryFilter;
       return byName && byCategory;
@@ -243,7 +331,7 @@ export default function Dashboard() {
   const filteredCompanies = useMemo(() => {
     const q = query.trim().toLowerCase();
     return companies.filter((item) => {
-      const byName = item.companyName.toLowerCase().includes(q);
+      const byName = (item.companyName || "").toLowerCase().includes(q);
       const byIndustry =
         companyIndustryFilter === "ALL" || item.industryName === companyIndustryFilter;
       return byName && byIndustry;
@@ -253,14 +341,22 @@ export default function Dashboard() {
   const filteredOffers = useMemo(() => {
     const q = query.trim().toLowerCase();
     return offers.filter((item) => {
+      if ((item.status || "").toUpperCase() !== "ACTIVE") return false;
       const byName =
-        item.title?.toLowerCase().includes(q) ||
-        item.company?.companyName?.toLowerCase().includes(q);
+        (item.title || "").toLowerCase().includes(q) ||
+        (item.company?.companyName || "").toLowerCase().includes(q);
       const byCategory =
         offerCategoryFilter === "ALL" || item.category?.name === offerCategoryFilter;
       return byName && byCategory;
     });
   }, [offers, query, offerCategoryFilter]);
+
+  const applicationsByOfferId = useMemo(() => {
+    return applications.reduce<Record<number, OfferApplication>>((acc, application) => {
+      acc[application.offerId] = application;
+      return acc;
+    }, {});
+  }, [applications]);
 
   return (
     <div className="flex min-h-screen bg-[#F9FAFB]">
@@ -492,6 +588,18 @@ export default function Dashboard() {
                       <Button disabled variant="outline" className="w-full">Website N/A</Button>
                     )}
                   </div>
+
+                  <div className="mt-3">
+                    <Link
+                      to={`/conversations/${company.userId}`}
+                      state={buildConversationState(company.userId, "COMPANY", company.companyName)}
+                      className="block"
+                    >
+                      <Button variant="outline" className="w-full border-[#3B82F6] text-[#3B82F6]">
+                        Message in Conversations
+                      </Button>
+                    </Link>
+                  </div>
                 </Card>
               ))}
             </div>
@@ -525,13 +633,79 @@ export default function Dashboard() {
                     {offer.campaignStartDate} to {offer.campaignEndDate}
                   </p>
 
-                  {offer.company?.id ? (
-                    <Link to={`/company/${offer.company.id}`}>
-                      <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">View Company</Button>
-                    </Link>
-                  ) : (
-                    <Button disabled className="w-full">Company unavailable</Button>
-                  )}
+                  <div className="space-y-3">
+                    {offer.company?.id ? (
+                      <Link to={`/company/${offer.company.id}`} className="block">
+                        <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">View Company</Button>
+                      </Link>
+                    ) : (
+                      <Button disabled className="w-full">Company unavailable</Button>
+                    )}
+
+                    {applicationsByOfferId[offer.id] && (
+                      <div className="rounded-lg border border-gray-200 bg-[#F9FAFB] p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium text-gray-700">Your application</span>
+                          <Badge className={getApplicationBadgeClass(applicationsByOfferId[offer.id].status)}>
+                            {applicationsByOfferId[offer.id].status}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Submitted {new Date(applicationsByOfferId[offer.id].createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                    )}
+
+                    {(() => {
+                      const application = applicationsByOfferId[offer.id];
+                      const canApply = !application || application.status === "WITHDRAWN";
+                      const canWithdraw = application?.status === "PENDING";
+
+                      if (canApply) {
+                        return (
+                          <Button
+                            variant="outline"
+                            className="w-full border-[#3B82F6] text-[#3B82F6]"
+                            onClick={() => {
+                              setCoverLetter("");
+                              setApplyDialogOffer(offer);
+                            }}
+                          >
+                            {application ? "Apply Again" : "Apply to Offer"}
+                          </Button>
+                        );
+                      }
+
+                      if (canWithdraw && application) {
+                        return (
+                          <Button
+                            variant="outline"
+                            className="w-full text-red-600"
+                            disabled={applicationBusyId === application.id}
+                            onClick={async () => {
+                              try {
+                                setApplicationBusyId(application.id);
+                                await deleteOfferApplication(application.id);
+                                setApplications((prev) => prev.filter((item) => item.id !== application.id));
+                              } catch (err: any) {
+                                setError(err?.message || "Failed to withdraw application.");
+                              } finally {
+                                setApplicationBusyId(null);
+                              }
+                            }}
+                          >
+                            Withdraw Application
+                          </Button>
+                        );
+                      }
+
+                      return (
+                        <Button disabled variant="outline" className="w-full">
+                          Application {application?.status || "Submitted"}
+                        </Button>
+                      );
+                    })()}
+                  </div>
                 </Card>
               ))}
             </div>
@@ -571,9 +745,25 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <Link to={`/creator/${creator.id}`}>
-                    <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">View Profile</Button>
-                  </Link>
+                  <div className="space-y-3">
+                    <Link to={`/creator/${creator.id}`} className="block">
+                      <Button className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90">View Profile</Button>
+                    </Link>
+                    <Link
+                      to={`/conversations/${creator.userId}`}
+                      state={buildConversationState(
+                        creator.userId,
+                        "CREATOR",
+                        creator.displayName,
+                        creator.contactEmail,
+                      )}
+                      className="block"
+                    >
+                      <Button variant="outline" className="w-full border-[#3B82F6] text-[#3B82F6]">
+                        Message in Conversations
+                      </Button>
+                    </Link>
+                  </div>
                 </Card>
               ))}
             </div>
@@ -628,6 +818,75 @@ export default function Dashboard() {
                 }}
               >
                 {startingCheckout ? "Redirecting..." : "Continue to Stripe"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(applyDialogOffer)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setApplyDialogOffer(null);
+              setCoverLetter("");
+            }
+          }}
+        >
+          <DialogContent className="rounded-2xl border border-gray-200 bg-white p-8 shadow-2xl sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Apply to Offer</DialogTitle>
+              <DialogDescription>
+                {applyDialogOffer
+                  ? `Send your application for "${applyDialogOffer.title}".`
+                  : "Submit your offer application."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Cover Letter</label>
+              <textarea
+                rows={6}
+                value={coverLetter}
+                onChange={(e) => setCoverLetter(e.target.value)}
+                placeholder="Introduce yourself, explain why you're a fit, and include your idea for this campaign."
+                className="w-full rounded-xl border border-gray-200 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setApplyDialogOffer(null);
+                  setCoverLetter("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={applySubmitting || !applyDialogOffer || !coverLetter.trim()}
+                className="bg-[#1E3A8A] hover:bg-[#1E3A8A]/90"
+                onClick={async () => {
+                  if (!applyDialogOffer) return;
+                  try {
+                    setApplySubmitting(true);
+                    const application = await createOfferApplication(applyDialogOffer.id, coverLetter.trim());
+                    setApplications((prev) => {
+                      const next = prev.filter((item) => item.offerId !== application.offerId);
+                      return [application, ...next];
+                    });
+                    setApplyDialogOffer(null);
+                    setCoverLetter("");
+                  } catch (err: any) {
+                    setError(err?.message || "Failed to submit application.");
+                  } finally {
+                    setApplySubmitting(false);
+                  }
+                }}
+              >
+                {applySubmitting ? "Submitting..." : "Submit Application"}
               </Button>
             </DialogFooter>
           </DialogContent>
