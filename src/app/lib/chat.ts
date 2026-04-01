@@ -6,6 +6,7 @@ export type ChatParticipant = {
   email: string;
   role: "COMPANY" | "CREATOR" | string;
   status: "ACTIVE" | string;
+  avatar?: string | null;
 };
 
 export type ChatMessage = {
@@ -61,6 +62,7 @@ function ensureParticipant(data: unknown): ChatParticipant | null {
     email: item.email,
     role: item.role,
     status: item.status,
+    avatar: typeof item.avatar === "string" ? item.avatar : null,
   };
 }
 
@@ -222,7 +224,8 @@ export async function connectToChatSocket(options: {
       options.onError?.(frame.headers?.message || frame.body || "WebSocket connection failed.");
     },
     onWebSocketError: () => {
-      options.onError?.("WebSocket connection failed.");
+      // SockJS may emit transient WebSocket errors before falling back to a working transport.
+      // We surface only STOMP-level failures and connection setup exceptions to avoid false alarms.
     },
   });
 

@@ -53,6 +53,7 @@ export function clearAuthSession() {
   localStorage.removeItem("status");
   localStorage.removeItem("userId");
   localStorage.removeItem("email");
+  localStorage.removeItem("avatar");
   localStorage.removeItem("fullName");
   localStorage.removeItem("profileCompleted");
   notifyAuthStateChanged();

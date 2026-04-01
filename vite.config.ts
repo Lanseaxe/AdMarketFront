@@ -19,6 +19,15 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      "/ml-api": {
+        target: "http://46.247.40.227:8001",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ml-api/, ""),
+      },
+    },
+  },
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],

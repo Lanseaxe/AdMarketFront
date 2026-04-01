@@ -1,24 +1,33 @@
 import { Link, useNavigate } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
-import { CircleUserRound, LogOut, User } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 import {
   AUTH_STATE_CHANGED_EVENT,
   clearAuthSession,
   getAccessToken,
   setPendingProfileRedirect,
 } from "../lib/auth-storage";
+import UserAvatar from "./UserAvatar";
+import { CURRENT_USER_CHANGED_EVENT } from "../lib/user-session";
 
 export default function Header() {
   const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getAccessToken()));
   const [menuOpen, setMenuOpen] = useState(false);
+  const [avatar, setAvatar] = useState<string | null>(localStorage.getItem("avatar"));
+  const [email, setEmail] = useState<string>(localStorage.getItem("email") || "Profile");
 
   useEffect(() => {
-    const syncAuth = () => setIsAuthenticated(Boolean(getAccessToken()));
+    const syncAuth = () => {
+      setIsAuthenticated(Boolean(getAccessToken()));
+      setAvatar(localStorage.getItem("avatar"));
+      setEmail(localStorage.getItem("email") || "Profile");
+    };
     const onStorage = () => syncAuth();
     const onAuthStateChanged = () => syncAuth();
+    const onCurrentUserChanged = () => syncAuth();
     const onWindowFocus = () => syncAuth();
     const onWindowClick = (event: MouseEvent) => {
       if (!menuRef.current) return;
@@ -29,11 +38,13 @@ export default function Header() {
 
     window.addEventListener("storage", onStorage);
     window.addEventListener(AUTH_STATE_CHANGED_EVENT, onAuthStateChanged);
+    window.addEventListener(CURRENT_USER_CHANGED_EVENT, onCurrentUserChanged);
     window.addEventListener("focus", onWindowFocus);
     window.addEventListener("click", onWindowClick);
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener(AUTH_STATE_CHANGED_EVENT, onAuthStateChanged);
+      window.removeEventListener(CURRENT_USER_CHANGED_EVENT, onCurrentUserChanged);
       window.removeEventListener("focus", onWindowFocus);
       window.removeEventListener("click", onWindowClick);
     };
@@ -92,10 +103,15 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="inline-flex items-center justify-center h-10 w-10 rounded-full border border-gray-200 text-[#1E3A8A] hover:bg-[#EFF6FF] transition-colors"
+              className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-200 text-[#1E3A8A] transition-colors hover:bg-[#EFF6FF]"
               aria-label="Open profile menu"
             >
-              <CircleUserRound className="w-6 h-6" />
+              <UserAvatar
+                avatar={avatar}
+                label={email}
+                className="h-full w-full"
+                fallbackClassName="bg-[#1E3A8A] text-sm font-semibold text-white"
+              />
             </button>
 
             {menuOpen && (

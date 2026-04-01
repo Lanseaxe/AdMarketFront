@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import Sidebar from "../components/Sidebar";
+import UserAvatar from "../components/UserAvatar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -29,6 +30,7 @@ type CreatorItem = {
   avgViews: number;
   engagementRate: number;
   contactEmail: string;
+  avatar?: string | null;
 };
 
 type CompanyItem = {
@@ -43,6 +45,7 @@ type CompanyItem = {
   country: { id: number; name: string; code: string };
   minBudget: number;
   maxBudget: number;
+  avatar?: string | null;
 };
 
 type OfferItem = {
@@ -228,12 +231,14 @@ export default function Dashboard() {
     role: "COMPANY" | "CREATOR",
     participantName: string,
     email?: string,
+    avatar?: string | null,
   ) => {
     const participant: ChatParticipant = {
       id: userId,
       email: email || `${participantName} (${role})`,
       role,
       status: "ACTIVE",
+      avatar: avatar ?? null,
     };
 
     return {
@@ -267,7 +272,8 @@ export default function Dashboard() {
             if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
             const page = await fetchPaged<CompanyItem>(url);
             if (!active) return;
-            setCompanies(Array.isArray(page.content) ? page.content : []);
+            const items = Array.isArray(page.content) ? page.content : [];
+            setCompanies(items);
             setTotalCount(page.totalElements || 0);
           } else {
             const url = buildPagedUrl("/api/v1/offer", 0, 200, offerSort);
@@ -287,7 +293,8 @@ export default function Dashboard() {
           if (!url) throw new Error("VITE_API_URL is not set. Add it to your .env file.");
           const page = await fetchPaged<CreatorItem>(url);
           if (!active) return;
-          setCreators(Array.isArray(page.content) ? page.content : []);
+          const items = Array.isArray(page.content) ? page.content : [];
+          setCreators(items);
           setTotalCount(page.totalElements || 0);
         }
       } catch (err: any) {
@@ -560,9 +567,17 @@ export default function Dashboard() {
                   className="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-shadow"
                 >
                   <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{company.companyName}</h3>
-                      <p className="text-sm text-gray-600 mt-0.5">{company.country?.name || "Country N/A"}</p>
+                    <div className="flex items-start gap-3">
+                      <UserAvatar
+                        avatar={company.avatar}
+                        label={company.companyName}
+                        className="h-12 w-12 rounded-xl"
+                        fallbackClassName="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white"
+                      />
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">{company.companyName}</h3>
+                        <p className="text-sm text-gray-600 mt-0.5">{company.country?.name || "Country N/A"}</p>
+                      </div>
                     </div>
                     <Badge variant="secondary" className="bg-[#EFF6FF] text-[#3B82F6]">
                       {company.industryName || "N/A"}
@@ -592,7 +607,7 @@ export default function Dashboard() {
                   <div className="mt-3">
                     <Link
                       to={`/conversations/${company.userId}`}
-                      state={buildConversationState(company.userId, "COMPANY", company.companyName)}
+                      state={buildConversationState(company.userId, "COMPANY", company.companyName, undefined, company.avatar)}
                       className="block"
                     >
                       <Button variant="outline" className="w-full border-[#3B82F6] text-[#3B82F6]">
@@ -719,9 +734,17 @@ export default function Dashboard() {
                   className="p-6 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition-shadow"
                 >
                   <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{creator.displayName}</h3>
-                      <p className="text-sm text-gray-600 mt-0.5">{creator.contactEmail}</p>
+                    <div className="flex items-start gap-3">
+                      <UserAvatar
+                        avatar={creator.avatar}
+                        label={creator.displayName}
+                        className="h-12 w-12 rounded-xl"
+                        fallbackClassName="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white"
+                      />
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">{creator.displayName}</h3>
+                        <p className="text-sm text-gray-600 mt-0.5">{creator.contactEmail}</p>
+                      </div>
                     </div>
                     <Badge variant="secondary" className="bg-[#EFF6FF] text-[#3B82F6]">
                       {creator.primaryCategoryName || "N/A"}
@@ -756,6 +779,7 @@ export default function Dashboard() {
                         "CREATOR",
                         creator.displayName,
                         creator.contactEmail,
+                        creator.avatar,
                       )}
                       className="block"
                     >

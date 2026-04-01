@@ -5,13 +5,28 @@ export type CurrentUser = {
   email: string;
   role: "COMPANY" | "CREATOR" | string;
   status: "ACTIVE" | string;
+  avatar?: string | null;
 };
 
-function storeCurrentUser(user: CurrentUser) {
+export const CURRENT_USER_CHANGED_EVENT = "current-user-changed";
+
+function notifyCurrentUserChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(CURRENT_USER_CHANGED_EVENT));
+  }
+}
+
+export function storeCurrentUser(user: CurrentUser) {
   localStorage.setItem("userId", String(user.id));
   localStorage.setItem("email", user.email);
   localStorage.setItem("role", user.role);
   localStorage.setItem("status", user.status);
+  if (typeof user.avatar === "string" && user.avatar.trim()) {
+    localStorage.setItem("avatar", user.avatar);
+  } else {
+    localStorage.removeItem("avatar");
+  }
+  notifyCurrentUserChanged();
 }
 
 export async function fetchCurrentUser(): Promise<CurrentUser | null> {
@@ -43,6 +58,7 @@ export async function fetchCurrentUser(): Promise<CurrentUser | null> {
     email: parsed.email,
     role: parsed.role,
     status: parsed.status,
+    avatar: typeof parsed.avatar === "string" ? parsed.avatar : null,
   };
 }
 

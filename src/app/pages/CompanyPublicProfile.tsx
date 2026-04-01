@@ -1,11 +1,13 @@
 import { Link, useParams } from "react-router";
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
+import UserAvatar from "../components/UserAvatar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { ArrowLeft, Globe, MapPin, Wallet } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
+import { fetchUserById, type BasicUserProfile } from "../lib/user-directory";
 
 type CompanyDetails = {
   id: number;
@@ -82,6 +84,7 @@ export default function CompanyPublicProfile() {
   const isCreatorVisitor = role === "CREATOR";
 
   const [company, setCompany] = useState<CompanyDetails | null>(null);
+  const [user, setUser] = useState<BasicUserProfile | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [offersLoading, setOffersLoading] = useState(false);
   const [offersError, setOffersError] = useState<string | null>(null);
@@ -100,6 +103,9 @@ export default function CompanyPublicProfile() {
         const result = await fetchCompanyById(id);
         if (!active) return;
         setCompany(result);
+        const userProfile = await fetchUserById(result.userId).catch(() => null);
+        if (!active) return;
+        setUser(userProfile);
 
         if (isCreatorVisitor) {
           setOffersLoading(true);
@@ -148,9 +154,17 @@ export default function CompanyPublicProfile() {
           {!loading && !error && company && (
             <Card className="p-8 bg-white border border-gray-200 rounded-xl">
               <div className="flex items-start justify-between gap-4 mb-5">
-                <div>
-                  <h1 className="text-3xl font-bold text-gray-900">{company.companyName}</h1>
-                  <p className="text-gray-600 mt-1">Company Profile</p>
+                <div className="flex items-start gap-4">
+                  <UserAvatar
+                    avatar={user?.avatar}
+                    label={company.companyName}
+                    className="h-16 w-16 rounded-2xl"
+                    fallbackClassName="rounded-2xl bg-[#1E3A8A] text-lg font-semibold text-white"
+                  />
+                  <div>
+                    <h1 className="text-3xl font-bold text-gray-900">{company.companyName}</h1>
+                    <p className="text-gray-600 mt-1">Company Profile</p>
+                  </div>
                 </div>
                 <Badge variant="secondary" className="bg-[#EFF6FF] text-[#3B82F6]">
                   {company.industryName || "N/A"}

@@ -4,12 +4,12 @@ import { ArrowLeft, Send } from "lucide-react";
 import { format } from "date-fns";
 
 import Sidebar from "../components/Sidebar";
-import { Avatar, AvatarFallback } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { ScrollArea } from "../components/ui/scroll-area";
+import UserAvatar from "../components/UserAvatar";
 import {
   connectToChatSocket,
   fetchConversation,
@@ -18,6 +18,7 @@ import {
   type ChatParticipant,
   type ChatSocketConnection,
 } from "../lib/chat";
+import { fetchChatBotInfo } from "../lib/chat-bot";
 import { syncCurrentUserFromApi } from "../lib/user-session";
 
 type LocationState = {
@@ -25,10 +26,6 @@ type LocationState = {
   currentUserId?: number | null;
   participantName?: string;
 };
-
-function getInitials(email: string) {
-  return email.slice(0, 2).toUpperCase();
-}
 
 function formatMessageTime(value: string) {
   const date = new Date(value);
@@ -84,6 +81,12 @@ export default function ConversationDetails() {
       setError(null);
 
       try {
+        const botInfo = await fetchChatBotInfo().catch(() => null);
+        if (botInfo?.id === targetUserId) {
+          navigate("/conversations", { replace: true });
+          return;
+        }
+
         const me = await syncCurrentUserFromApi();
         const fallbackUserId = Number(localStorage.getItem("userId"));
         const resolvedCurrentUserId = locationState.currentUserId
@@ -110,6 +113,7 @@ export default function ConversationDetails() {
             email: `User ${targetUserId}`,
             role: "UNKNOWN",
             status: "UNKNOWN",
+            avatar: null,
           },
         );
         setMessages(conversation);
@@ -125,7 +129,7 @@ export default function ConversationDetails() {
     return () => {
       active = false;
     };
-  }, [locationState.currentUserId, locationState.participant, targetUserId]);
+  }, [locationState.currentUserId, locationState.participant, navigate, targetUserId]);
 
   useEffect(() => {
     if (!currentUserId || !Number.isFinite(targetUserId)) return;
@@ -213,11 +217,12 @@ export default function ConversationDetails() {
               {participant && (
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <Avatar className="h-12 w-12 rounded-xl">
-                      <AvatarFallback className="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white">
-                        {getInitials(participantLabel)}
-                      </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                      avatar={participant.avatar}
+                      label={participantLabel}
+                      className="h-12 w-12 rounded-xl"
+                      fallbackClassName="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white"
+                    />
 
                     <div>
                       <div className="font-semibold text-gray-900">{participantLabel}</div>

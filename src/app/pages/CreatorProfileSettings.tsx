@@ -1,6 +1,7 @@
 import { Link } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "../components/Sidebar";
+import UserAvatar from "../components/UserAvatar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
@@ -13,6 +14,7 @@ import {
 } from "../components/ui/select";
 import { ArrowLeft, AlertCircle, CheckCircle2, Plus, Trash2, User } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
+import { uploadUserAvatar } from "../lib/user-directory";
 
 type Category = {
   id: number;
@@ -242,6 +244,7 @@ export default function CreatorProfileSettings() {
   const [avgViews, setAvgViews] = useState("0");
   const [engagementRate, setEngagementRate] = useState("1");
   const [contactEmail, setContactEmail] = useState(localStorage.getItem("email") || "");
+  const [avatar, setAvatar] = useState<string | null>(localStorage.getItem("avatar"));
 
   const [platforms, setPlatforms] = useState<CreatorPlatform[]>([]);
   const [audienceAges, setAudienceAges] = useState<CreatorAudienceAge[]>([]);
@@ -254,12 +257,14 @@ export default function CreatorProfileSettings() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [initLoading, setInitLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [sectionLoading, setSectionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(
     localStorage.getItem("creatorProfileCompleted") !== "true",
   );
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   const syncProfileState = (profile: CreatorProfileByUserResponse | null, categoryList: Category[]) => {
     if (!profile) {
@@ -467,6 +472,38 @@ export default function CreatorProfileSettings() {
       setError(err?.message || "Failed to save creator profile.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onAvatarSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+    if (!isCreator) {
+      setError("This page is for CREATOR accounts.");
+      return;
+    }
+    if (!Number.isFinite(userId)) {
+      setError("User ID is missing. Re-login and try again.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file.");
+      return;
+    }
+
+    try {
+      setAvatarUploading(true);
+      setError(null);
+      setSuccess(null);
+      const updatedUser = await uploadUserAvatar(userId, file);
+      setAvatar(updatedUser.avatar ?? null);
+      setSuccess("Avatar updated.");
+    } catch (err: any) {
+      setError(err?.message || "Failed to upload avatar.");
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -878,6 +915,44 @@ export default function CreatorProfileSettings() {
 
               <TabsContent value="main" className="mt-0">
                 <div className="space-y-5">
+              <div className="rounded-2xl border border-gray-200 bg-[#F9FAFB] p-5">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-4">
+                    <UserAvatar
+                      avatar={avatar}
+                      label={displayName || contactEmail || "Creator"}
+                      className="h-20 w-20 rounded-2xl"
+                      fallbackClassName="rounded-2xl bg-[#1E3A8A] text-xl font-semibold text-white"
+                    />
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">Creator Avatar</div>
+                      <div className="mt-1 text-sm text-gray-600">
+                        This image will be used across chats, lists, and profile views.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={onAvatarSelected}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-[#3B82F6] text-[#3B82F6]"
+                      disabled={avatarUploading || !isCreator || !Number.isFinite(userId)}
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      {avatarUploading ? "Uploading..." : avatar ? "Change Avatar" : "Upload Avatar"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="text-sm font-medium text-gray-700">Name</label>
                 <input

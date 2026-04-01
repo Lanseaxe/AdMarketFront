@@ -1,11 +1,13 @@
 import { Link, useParams } from "react-router";
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
+import UserAvatar from "../components/UserAvatar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { ArrowLeft, Mail, Users, Eye, BarChart3, Globe2, Layers3, MonitorPlay } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
+import { fetchUserById, type BasicUserProfile } from "../lib/user-directory";
 
 type CreatorDetails = {
   id: number;
@@ -92,6 +94,7 @@ async function fetchCreatorByUserId(userId: number): Promise<CreatorFullProfile>
 export default function CreatorProfile() {
   const { id } = useParams();
   const [creator, setCreator] = useState<CreatorFullProfile | null>(null);
+  const [user, setUser] = useState<BasicUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,8 +109,10 @@ export default function CreatorProfile() {
       try {
         const basicProfile = await fetchCreatorById(id);
         const result = await fetchCreatorByUserId(basicProfile.userId);
+        const userProfile = await fetchUserById(basicProfile.userId).catch(() => null);
         if (!active) return;
         setCreator(result);
+        setUser(userProfile);
       } catch (err: any) {
         if (!active) return;
         setError(err?.message || "Failed to load creator.");
@@ -140,9 +145,17 @@ export default function CreatorProfile() {
           {!loading && !error && creator && (
             <Card className="p-8 bg-white border border-gray-200 rounded-xl">
               <div className="flex items-start justify-between gap-4 mb-5">
-                <div>
-                  <h1 className="text-3xl font-bold text-gray-900">{creator.displayName}</h1>
-                  <p className="text-gray-600 mt-1">Creator Profile</p>
+                <div className="flex items-start gap-4">
+                  <UserAvatar
+                    avatar={user?.avatar}
+                    label={creator.displayName}
+                    className="h-16 w-16 rounded-2xl"
+                    fallbackClassName="rounded-2xl bg-[#1E3A8A] text-lg font-semibold text-white"
+                  />
+                  <div>
+                    <h1 className="text-3xl font-bold text-gray-900">{creator.displayName}</h1>
+                    <p className="text-gray-600 mt-1">Creator Profile</p>
+                  </div>
                 </div>
                 <Badge variant="secondary" className="bg-[#EFF6FF] text-[#3B82F6]">
                   {creator.primaryCategoryName || "N/A"}

@@ -3,17 +3,14 @@ import { Link } from "react-router";
 import { MessageSquare, Search } from "lucide-react";
 
 import Sidebar from "../components/Sidebar";
-import { Avatar, AvatarFallback } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { ScrollArea } from "../components/ui/scroll-area";
+import UserAvatar from "../components/UserAvatar";
 import { fetchChats, type ChatParticipant } from "../lib/chat";
+import { fetchChatBotInfo } from "../lib/chat-bot";
 import { syncCurrentUserFromApi } from "../lib/user-session";
-
-function getInitials(email: string) {
-  return email.slice(0, 2).toUpperCase();
-}
 
 function getRoleLabel(role: string) {
   return role === "COMPANY" ? "Company" : role === "CREATOR" ? "Creator" : role;
@@ -42,11 +39,14 @@ export default function Conversations() {
           throw new Error("Current user is not available. Please sign in again.");
         }
 
-        const list = await fetchChats(userId);
+        const [list, bot] = await Promise.all([
+          fetchChats(userId),
+          fetchChatBotInfo().catch(() => null),
+        ]);
         if (!active) return;
 
         setCurrentUserId(userId);
-        setChats(list);
+        setChats(bot ? list.filter((item) => item.id !== bot.id) : list);
       } catch (err: any) {
         if (!active) return;
         setError(err?.message || "Failed to load chats.");
@@ -132,11 +132,12 @@ export default function Conversations() {
                       >
                         <div className="rounded-2xl border border-gray-200 p-4 transition hover:border-[#3B82F6] hover:bg-[#EFF6FF]/60">
                           <div className="flex items-center gap-4">
-                            <Avatar className="h-12 w-12 rounded-xl">
-                              <AvatarFallback className="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white">
-                                {getInitials(chat.email)}
-                              </AvatarFallback>
-                            </Avatar>
+                            <UserAvatar
+                              avatar={chat.avatar}
+                              label={chat.email}
+                              className="h-12 w-12 rounded-xl"
+                              fallbackClassName="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white"
+                            />
 
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-3">

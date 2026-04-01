@@ -4,7 +4,8 @@ import Sidebar from "../components/Sidebar";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, Plus, Pencil, Trash2, RefreshCw, Users } from "lucide-react";
+import UserAvatar from "../components/UserAvatar";
+import { ArrowLeft, Plus, Pencil, Trash2, RefreshCw, Users, Sparkles, Eye, Mail } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
 
 type Category = { id: number; name: string };
@@ -43,6 +44,25 @@ type OfferApplicationPage = {
   totalElements: number;
 };
 
+type CreatorSummary = {
+  id: number;
+  userId: number;
+  displayName: string;
+  bio: string;
+  primaryCategoryName: string;
+  followersCount: number;
+  avgViews: number;
+  engagementRate: number;
+  contactEmail: string;
+  avatar?: string | null;
+};
+
+type PredictionResponse = {
+  creator_id: number;
+  offer_id: number;
+  success_probability: number;
+};
+
 type OfferForm = {
   title: string;
   description: string;
@@ -69,6 +89,8 @@ const DEFAULT_FORM: OfferForm = {
 
 const STATUS_OPTIONS = ["DRAFT", "ACTIVE", "ARCHIVED"] as const;
 const APPLICATION_STATUS_OPTIONS = ["PENDING", "ACCEPTED", "REJECTED", "WITHDRAWN"] as const;
+const PREDICTION_API_BASE =
+  (import.meta.env.VITE_PREDICTION_API_URL as string | undefined)?.trim() || "/ml-api";
 
 function buildUrl(path: string, params?: Record<string, string>) {
   const apiBase = getApiBaseUrl();
@@ -140,6 +162,69 @@ async function updateApplicationStatus(applicationId: number, nextStatus: string
   return mutateJson<OfferApplication>(url, "PUT");
 }
 
+async function fetchCreatorSummary(creatorId: number): Promise<CreatorSummary | null> {
+  const url = buildUrl(`/api/v1/creator/${creatorId}`);
+  if (!url) throw new Error("VITE_API_URL is not set.");
+
+  const res = await fetchWithAuthRetry(url, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await parseBodySafe(res);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to load creator details (HTTP ${res.status})`);
+  if (!data || typeof data !== "object") throw new Error("Invalid creator details response.");
+  return data as CreatorSummary;
+}
+
+async function fetchOfferPrediction(creatorId: number, offerId: number): Promise<number | null> {
+  const coerceProbability = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const normalized = value.trim().replace("%", "");
+      if (!normalized) return null;
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const extractProbability = (payload: unknown): number | null => {
+    const direct = coerceProbability(payload);
+    if (direct !== null) return direct;
+
+    if (!payload || typeof payload !== "object") return null;
+    const parsed = payload as Record<string, unknown>;
+
+    return (
+      coerceProbability(parsed.success_probability) ??
+      coerceProbability(parsed.successProbability) ??
+      coerceProbability(parsed.probability) ??
+      coerceProbability(parsed.score) ??
+      null
+    );
+  };
+
+  const base = PREDICTION_API_BASE.replace(/\/+$/, "");
+  const url = base.startsWith("http://") || base.startsWith("https://")
+    ? new URL("/predict", base)
+    : new URL(`${base}/predict`, window.location.origin);
+  url.searchParams.set("creator_id", String(creatorId));
+  url.searchParams.set("offer_id", String(offerId));
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  const data = await parseBodySafe(res);
+  if (!res.ok) {
+    throw new Error(`Failed to load success probability (HTTP ${res.status})`);
+  }
+  const probability = extractProbability(data);
+  if (probability !== null) return probability;
+  throw new Error("Prediction service returned an unsupported response format.");
+}
+
 function getApplicationBadgeClass(status: string) {
   if (status === "ACCEPTED") return "bg-emerald-100 text-emerald-700 border border-emerald-200";
   if (status === "REJECTED") return "bg-red-100 text-red-700 border border-red-200";
@@ -181,6 +266,9 @@ export default function MyCampaigns() {
   const [applicationStatusDraft, setApplicationStatusDraft] = useState<Record<number, string>>({});
   const [applicationsLoadingOfferId, setApplicationsLoadingOfferId] = useState<number | null>(null);
   const [applicationSavingId, setApplicationSavingId] = useState<number | null>(null);
+  const [creatorDetailsById, setCreatorDetailsById] = useState<Record<number, CreatorSummary | null>>({});
+  const [predictionByKey, setPredictionByKey] = useState<Record<string, number | null>>({});
+  const [predictionErrorByKey, setPredictionErrorByKey] = useState<Record<string, string>>({});
 
   const canSubmit = useMemo(() => {
     return (
@@ -194,6 +282,65 @@ export default function MyCampaigns() {
       !!form.campaignEndDate
     );
   }, [form]);
+
+  const getPredictionKey = (creatorId: number, offerId: number) => `${creatorId}:${offerId}`;
+
+  const hydrateApplicationsMeta = async (
+    entries: readonly (readonly [number, OfferApplication[]])[],
+  ) => {
+    const uniqueCreatorIds = Array.from(
+      new Set(entries.flatMap(([, items]) => items.map((item) => item.creatorId)).filter(Boolean)),
+    );
+
+    const creatorPairs = await Promise.all(
+      uniqueCreatorIds.map(async (creatorId) => {
+        try {
+          const details = await fetchCreatorSummary(creatorId);
+          return [creatorId, details] as const;
+        } catch {
+          return [creatorId, null] as const;
+        }
+      }),
+    );
+
+    setCreatorDetailsById((prev) => ({
+      ...prev,
+      ...creatorPairs.reduce<Record<number, CreatorSummary | null>>((acc, [creatorId, details]) => {
+        acc[creatorId] = details;
+        return acc;
+      }, {}),
+    }));
+
+    const predictionPairs = await Promise.all(
+      entries.flatMap(([offerId, items]) =>
+        items.map(async (item) => {
+          const key = getPredictionKey(item.creatorId, offerId);
+          try {
+            const probability = await fetchOfferPrediction(item.creatorId, offerId);
+            return { key, probability, error: null as string | null };
+          } catch (err: any) {
+            return { key, probability: null, error: err?.message || "Prediction unavailable." };
+          }
+        }),
+      ),
+    );
+
+    setPredictionByKey((prev) => ({
+      ...prev,
+      ...predictionPairs.reduce<Record<string, number | null>>((acc, item) => {
+        acc[item.key] = item.probability;
+        return acc;
+      }, {}),
+    }));
+
+    setPredictionErrorByKey((prev) => ({
+      ...prev,
+      ...predictionPairs.reduce<Record<string, string>>((acc, item) => {
+        if (item.error) acc[item.key] = item.error;
+        return acc;
+      }, {}),
+    }));
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -243,6 +390,7 @@ export default function MyCampaigns() {
             return acc;
           }, {}),
         );
+        await hydrateApplicationsMeta(applicationEntries);
         return;
       }
 
@@ -387,6 +535,7 @@ export default function MyCampaigns() {
         });
         return next;
       });
+      await hydrateApplicationsMeta([[offerId, items]] as const);
     } catch (err: any) {
       setError(err?.message || "Failed to load applications.");
     } finally {
@@ -750,11 +899,32 @@ export default function MyCampaigns() {
                           <div className="space-y-3">
                             {(applicationsByOffer[offer.id] || []).map((application) => (
                               <div key={application.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                                {(() => {
+                                  const creator = creatorDetailsById[application.creatorId];
+                                  const predictionKey = getPredictionKey(application.creatorId, offer.id);
+                                  const probability = predictionByKey[predictionKey];
+                                  const predictionError = predictionErrorByKey[predictionKey];
+
+                                  return (
+                                    <>
                                 <div className="mb-2 flex items-center justify-between gap-3">
-                                  <div>
-                                    <div className="font-medium text-gray-900">{application.creatorDisplayName}</div>
-                                    <div className="text-xs text-gray-500">
-                                      Applied {new Date(application.createdAt).toLocaleDateString()}
+                                  <div className="flex items-start gap-3">
+                                    <UserAvatar
+                                      avatar={creator?.avatar}
+                                      label={creator?.displayName || application.creatorDisplayName}
+                                      className="h-11 w-11 rounded-xl"
+                                      fallbackClassName="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white"
+                                    />
+                                    <div>
+                                      <div className="font-medium text-gray-900">
+                                        {creator?.displayName || application.creatorDisplayName}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Applied {new Date(application.createdAt).toLocaleDateString()}
+                                      </div>
+                                      <div className="mt-1 text-xs text-gray-500">
+                                        Creator ID: {application.creatorId}
+                                      </div>
                                     </div>
                                   </div>
                                   <Badge className={getApplicationBadgeClass(application.status)}>
@@ -762,7 +932,56 @@ export default function MyCampaigns() {
                                   </Badge>
                                 </div>
 
+                                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                  <div className="rounded-lg border border-blue-100 bg-[#EFF6FF] p-3">
+                                    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#1E3A8A]">
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                      Match Prediction
+                                    </div>
+                                    <div className="mt-2 text-2xl font-bold text-[#1E3A8A]">
+                                      {typeof probability === "number" ? `${probability.toFixed(2)}%` : "N/A"}
+                                    </div>
+                                    <div className="mt-1 text-xs text-gray-600">
+                                      {predictionError || "Estimated success probability for this creator and offer."}
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-lg border border-gray-200 bg-[#F9FAFB] p-3">
+                                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                      Creator Snapshot
+                                    </div>
+                                    <div className="mt-2 text-sm text-gray-700">
+                                      Category: {creator?.primaryCategoryName || "N/A"}
+                                    </div>
+                                    <div className="text-sm text-gray-700">
+                                      Followers: {creator?.followersCount ?? "N/A"}
+                                    </div>
+                                    <div className="text-sm text-gray-700">
+                                      Avg Views: {creator?.avgViews ?? "N/A"}
+                                    </div>
+                                    <div className="text-sm text-gray-700">
+                                      Engagement: {typeof creator?.engagementRate === "number" ? `${creator.engagementRate}%` : "N/A"}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="mb-3 space-y-1">
+                                  <div className="flex items-center gap-2 text-sm text-gray-700">
+                                    <Mail className="h-4 w-4 text-gray-400" />
+                                    <span>{creator?.contactEmail || "Email unavailable"}</span>
+                                  </div>
+                                  <p className="text-sm text-gray-600">
+                                    {creator?.bio?.trim() || "This creator has not added a bio yet."}
+                                  </p>
+                                </div>
+
                                 <div className="flex flex-wrap gap-2">
+                                  <Link to={`/creator/${application.creatorId}`} className="inline-flex">
+                                    <Button variant="outline">
+                                      <Eye className="w-4 h-4 mr-2" />
+                                      View Creator
+                                    </Button>
+                                  </Link>
                                   <select
                                     value={applicationStatusDraft[application.id] || application.status}
                                     onChange={(e) =>
@@ -787,6 +1006,9 @@ export default function MyCampaigns() {
                                     {applicationSavingId === application.id ? "Saving..." : "Update"}
                                   </Button>
                                 </div>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             ))}
                           </div>
