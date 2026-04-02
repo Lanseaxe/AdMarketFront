@@ -92,6 +92,22 @@ const APPLICATION_STATUS_OPTIONS = ["PENDING", "ACCEPTED", "REJECTED", "WITHDRAW
 const PREDICTION_API_BASE =
   (import.meta.env.VITE_PREDICTION_API_URL as string | undefined)?.trim() || "/ml-api";
 
+function buildPredictionUrl(creatorId: number, offerId: number) {
+  const rawBase = PREDICTION_API_BASE.trim();
+  const isAbsolute = rawBase.startsWith("http://") || rawBase.startsWith("https://");
+  const url = isAbsolute
+    ? new URL(rawBase)
+    : new URL(rawBase, window.location.origin);
+
+  if (!/\/predict\/?$/i.test(url.pathname)) {
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}/predict`;
+  }
+
+  url.searchParams.set("creator_id", String(creatorId));
+  url.searchParams.set("offer_id", String(offerId));
+  return url;
+}
+
 function buildUrl(path: string, params?: Record<string, string>) {
   const apiBase = getApiBaseUrl();
   if (!apiBase) return null;
@@ -249,12 +265,7 @@ async function fetchOfferPrediction(creatorId: number, offerId: number): Promise
     return null;
   };
 
-  const base = PREDICTION_API_BASE.replace(/\/+$/, "");
-  const url = base.startsWith("http://") || base.startsWith("https://")
-    ? new URL("/predict", base)
-    : new URL(`${base}/predict`, window.location.origin);
-  url.searchParams.set("creator_id", String(creatorId));
-  url.searchParams.set("offer_id", String(offerId));
+  const url = buildPredictionUrl(creatorId, offerId);
 
   const res = await fetch(url.toString(), {
     method: "GET",
