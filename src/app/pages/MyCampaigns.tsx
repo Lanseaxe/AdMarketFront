@@ -189,20 +189,64 @@ async function fetchOfferPrediction(creatorId: number, offerId: number): Promise
     return null;
   };
 
-  const extractProbability = (payload: unknown): number | null => {
+  const extractProbability = (payload: unknown, depth = 0): number | null => {
+    if (depth > 4) return null;
+
     const direct = coerceProbability(payload);
     if (direct !== null) return direct;
+
+    if (typeof payload === "string") {
+      const normalized = payload.trim();
+      if (!normalized) return null;
+      try {
+        return extractProbability(JSON.parse(normalized), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+
+    if (Array.isArray(payload)) {
+      for (const item of payload) {
+        const probability = extractProbability(item, depth + 1);
+        if (probability !== null) return probability;
+      }
+      return null;
+    }
 
     if (!payload || typeof payload !== "object") return null;
     const parsed = payload as Record<string, unknown>;
 
-    return (
-      coerceProbability(parsed.success_probability) ??
-      coerceProbability(parsed.successProbability) ??
-      coerceProbability(parsed.probability) ??
-      coerceProbability(parsed.score) ??
-      null
-    );
+    const directFields = [
+      parsed.success_probability,
+      parsed.successProbability,
+      parsed.probability,
+      parsed.score,
+      parsed.prediction,
+      parsed.matchPrediction,
+      parsed.value,
+    ];
+
+    for (const candidate of directFields) {
+      const probability = coerceProbability(candidate);
+      if (probability !== null) return probability;
+    }
+
+    const nestedFields = [
+      parsed.data,
+      parsed.result,
+      parsed.payload,
+      parsed.response,
+      parsed.prediction,
+      parsed.matchPrediction,
+      parsed.body,
+    ];
+
+    for (const candidate of nestedFields) {
+      const probability = extractProbability(candidate, depth + 1);
+      if (probability !== null) return probability;
+    }
+
+    return null;
   };
 
   const base = PREDICTION_API_BASE.replace(/\/+$/, "");

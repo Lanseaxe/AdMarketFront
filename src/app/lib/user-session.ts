@@ -10,6 +10,34 @@ export type CurrentUser = {
 
 export const CURRENT_USER_CHANGED_EVENT = "current-user-changed";
 
+function extractAvatarValue(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+
+  const item = data as Record<string, unknown>;
+  const candidates = [
+    item.avatar,
+    item.avatarUrl,
+    item.profilePhoto,
+    item.profilePhotoUrl,
+    item.photo,
+    item.photoUrl,
+    item.image,
+    item.imageUrl,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  if (item.user && typeof item.user === "object") {
+    return extractAvatarValue(item.user);
+  }
+
+  return null;
+}
+
 function notifyCurrentUserChanged() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(CURRENT_USER_CHANGED_EVENT));
@@ -58,7 +86,7 @@ export async function fetchCurrentUser(): Promise<CurrentUser | null> {
     email: parsed.email,
     role: parsed.role,
     status: parsed.status,
-    avatar: typeof parsed.avatar === "string" ? parsed.avatar : null,
+    avatar: extractAvatarValue(data),
   };
 }
 

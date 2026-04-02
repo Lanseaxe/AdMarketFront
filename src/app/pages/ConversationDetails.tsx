@@ -20,6 +20,7 @@ import {
 } from "../lib/chat";
 import { fetchChatBotInfo } from "../lib/chat-bot";
 import { syncCurrentUserFromApi } from "../lib/user-session";
+import { fetchUserById } from "../lib/user-directory";
 
 type LocationState = {
   participant?: ChatParticipant;
@@ -101,6 +102,19 @@ export default function ConversationDetails() {
         if (!resolvedParticipant) {
           const chats = await fetchChats(resolvedCurrentUserId);
           resolvedParticipant = chats.find((item) => item.id === targetUserId) ?? null;
+        }
+
+        if (!resolvedParticipant || !resolvedParticipant.avatar) {
+          const fallbackUser = await fetchUserById(targetUserId).catch(() => null);
+          if (fallbackUser) {
+            resolvedParticipant = {
+              id: resolvedParticipant?.id ?? fallbackUser.id,
+              email: resolvedParticipant?.email || fallbackUser.email,
+              role: resolvedParticipant?.role || fallbackUser.role,
+              status: resolvedParticipant?.status || fallbackUser.status,
+              avatar: resolvedParticipant?.avatar || fallbackUser.avatar || null,
+            };
+          }
         }
 
         const conversation = await fetchConversation(resolvedCurrentUserId, targetUserId);

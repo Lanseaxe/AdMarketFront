@@ -15,6 +15,7 @@ import {
 import { ArrowLeft, AlertCircle, CheckCircle2, Plus, Trash2, User } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
 import { uploadUserAvatar } from "../lib/user-directory";
+import { syncCurrentUserFromApi } from "../lib/user-session";
 
 type Category = {
   id: number;
@@ -336,6 +337,12 @@ export default function CreatorProfileSettings() {
     let active = true;
     const load = async () => {
       try {
+        const me = await syncCurrentUserFromApi().catch(() => null);
+        if (!active) return;
+        if (me?.avatar !== undefined) {
+          setAvatar(me.avatar ?? null);
+        }
+
         const [categoryList, countryList] = await Promise.all([
           fetchJson<Category[]>(`${apiBase}/api/v1/category`),
           fetchJson<Country[]>(`${apiBase}/api/v1/country`),

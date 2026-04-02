@@ -9,6 +9,34 @@ export type BasicUserProfile = {
   avatar?: string | null;
 };
 
+function extractAvatarValue(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+
+  const item = data as Record<string, unknown>;
+  const candidates = [
+    item.avatar,
+    item.avatarUrl,
+    item.profilePhoto,
+    item.profilePhotoUrl,
+    item.photo,
+    item.photoUrl,
+    item.image,
+    item.imageUrl,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  if (item.user && typeof item.user === "object") {
+    return extractAvatarValue(item.user);
+  }
+
+  return null;
+}
+
 function ensureBasicUserProfile(data: unknown): BasicUserProfile | null {
   if (!data || typeof data !== "object") return null;
 
@@ -27,7 +55,7 @@ function ensureBasicUserProfile(data: unknown): BasicUserProfile | null {
     email: item.email,
     role: item.role,
     status: item.status,
-    avatar: typeof item.avatar === "string" ? item.avatar : null,
+    avatar: extractAvatarValue(data),
   };
 }
 

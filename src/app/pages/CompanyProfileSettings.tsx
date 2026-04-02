@@ -14,6 +14,7 @@ import {
 import { ArrowLeft, AlertCircle, CheckCircle2, Building2 } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
 import { uploadUserAvatar } from "../lib/user-directory";
+import { syncCurrentUserFromApi } from "../lib/user-session";
 
 type Industry = {
   id: number;
@@ -163,6 +164,12 @@ export default function CompanyProfile() {
     let active = true;
     const load = async () => {
       try {
+        const me = await syncCurrentUserFromApi().catch(() => null);
+        if (!active) return;
+        if (me?.avatar !== undefined) {
+          setAvatar(me.avatar ?? null);
+        }
+
         const [industryList, countryList] = await Promise.all([
           fetchJson<Industry[]>(`${apiBase}/api/v1/industry`),
           fetchJson<Country[]>(`${apiBase}/api/v1/country`),
