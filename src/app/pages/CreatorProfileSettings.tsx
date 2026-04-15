@@ -232,6 +232,97 @@ function isValidPercentage(value: number) {
   return Number.isFinite(value) && value >= 0 && value <= 100;
 }
 
+type ScraperResponse = Record<string, unknown>;
+
+type AutofillStatus = {
+  kind: "success" | "error";
+  text: string;
+};
+
+function getSocialScraperBaseUrl() {
+  const explicit = (import.meta.env.VITE_SOCIAL_SCRAPER_URL as string | undefined)?.trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  return "/social-scraper";
+}
+
+function supportsPlatformAutofill(platform: string) {
+  return ["TELEGRAM", "YOUTUBE", "INSTAGRAM"].includes(platform.toUpperCase());
+}
+
+function parseCountValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value));
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const normalizedNumeric = trimmed.replace(/\s+/g, "").replace(/,/g, "");
+    if (/^\d+(\.\d+)?$/.test(normalizedNumeric)) {
+      const parsed = Number(normalizedNumeric);
+      return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : null;
+    }
+
+    const digitsOnly = trimmed.match(/[\d\s,.]+/);
+    if (digitsOnly?.[0]) {
+      const parsed = Number(digitsOnly[0].replace(/[^\d.]/g, ""));
+      return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : null;
+    }
+  }
+
+  return null;
+}
+
+function extractFollowersCount(payload: unknown): number | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  const data = payload as ScraperResponse;
+  const candidateFields = [
+    data.followers,
+    data.subscribers,
+    data.members,
+    data.followersCount,
+    data.subscribersCount,
+    data.membersCount,
+  ];
+
+  for (const candidate of candidateFields) {
+    const parsed = parseCountValue(candidate);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
+}
+
+async function fetchFollowersCountFromWrapper(profileUrl: string): Promise<number> {
+  const normalizedUrl = normalizeUrl(profileUrl);
+  if (!normalizedUrl) throw new Error("Platform profile URL is required.");
+
+  const wrapperBase = getSocialScraperBaseUrl();
+  const wrapperUrl = wrapperBase.startsWith("http://") || wrapperBase.startsWith("https://")
+    ? new URL(`${wrapperBase}/scrape`)
+    : new URL(`${wrapperBase}/scrape`, window.location.origin);
+  wrapperUrl.searchParams.set("url", normalizedUrl);
+
+  const res = await fetch(wrapperUrl.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  const data = await parseBodySafe(res);
+
+  if (!res.ok) {
+    throw new Error(getErrorMessage(res.status, data, "Failed to fetch platform data"));
+  }
+
+  const followersCount = extractFollowersCount(data);
+  if (followersCount === null) {
+    throw new Error("Wrapper returned data, but followers/subscribers count was not found.");
+  }
+
+  return followersCount;
+}
+
 export default function CreatorProfileSettings() {
   const role = localStorage.getItem("role");
   const isCreator = role === "CREATOR";
@@ -260,6 +351,8 @@ export default function CreatorProfileSettings() {
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [sectionLoading, setSectionLoading] = useState<string | null>(null);
+  const [autofillLoadingKey, setAutofillLoadingKey] = useState<string | null>(null);
+  const [autofillStatusByKey, setAutofillStatusByKey] = useState<Record<string, AutofillStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(
@@ -389,6 +482,63 @@ export default function CreatorProfileSettings() {
   const canSave = useMemo(() => {
     return !saving && !initLoading && isCreator && Number.isFinite(userId) && isEditing;
   }, [saving, initLoading, isCreator, userId, isEditing]);
+
+  const setAutofillStatus = (key: string, status: AutofillStatus | null) => {
+    setAutofillStatusByKey((prev) => {
+      const next = { ...prev };
+      if (!status) {
+        delete next[key];
+        return next;
+      }
+      next[key] = status;
+      return next;
+    });
+  };
+
+  const autofillPlatformFollowers = async (params: {
+    key: string;
+    platform: string;
+    profileUrl: string;
+    applyFollowersCount: (followersCount: number) => void;
+  }) => {
+    const { key, platform, profileUrl, applyFollowersCount } = params;
+    const normalizedUrl = normalizeUrl(profileUrl);
+
+    setAutofillStatus(key, null);
+    if (!normalizedUrl) return;
+
+    if (!supportsPlatformAutofill(platform)) {
+      setAutofillStatus(key, {
+        kind: "error",
+        text: "Autofill currently supports Telegram, YouTube, and Instagram links.",
+      });
+      return;
+    }
+
+    try {
+      setAutofillLoadingKey(key);
+      const followers = await fetchFollowersCountFromWrapper(normalizedUrl);
+      applyFollowersCount(followers);
+      setAutofillStatus(key, {
+        kind: "success",
+        text: `Followers count was filled automatically: ${followers.toLocaleString()}.`,
+      });
+    } catch (err: any) {
+      const rawMessage = typeof err?.message === "string" ? err.message.trim() : "";
+      const isNetworkStyleError =
+        !rawMessage ||
+        /failed to fetch|networkerror|load failed|cors|invalid url/i.test(rawMessage);
+
+      setAutofillStatus(key, {
+        kind: "error",
+        text: isNetworkStyleError
+          ? "Sorry, we couldn't load data from this link. Please fill in the followers count manually."
+          : "Sorry, we couldn't load data automatically. Please fill in the followers count manually.",
+      });
+    } finally {
+      setAutofillLoadingKey((current) => (current === key ? null : current));
+    }
+  };
 
   const onSave = async () => {
     setError(null);
@@ -1133,10 +1283,37 @@ export default function CreatorProfileSettings() {
                                 ),
                               )
                             }
+                            onBlur={() =>
+                              void autofillPlatformFollowers({
+                                key: `platform-${platform.id}`,
+                                platform: platform.platform,
+                                profileUrl: platform.profileUrl,
+                                applyFollowersCount: (followers) =>
+                                  setPlatforms((prev) =>
+                                    prev.map((item) =>
+                                      item.id === platform.id ? { ...item, followersCount: followers } : item,
+                                    ),
+                                  ),
+                              })
+                            }
                             disabled={!isEditing}
                             className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                             placeholder="https://platform.com/creator"
                           />
+                          {autofillLoadingKey === `platform-${platform.id}` && (
+                            <div className="mt-2 text-xs text-gray-500">Loading platform stats...</div>
+                          )}
+                          {autofillStatusByKey[`platform-${platform.id}`] && (
+                            <div
+                              className={`mt-2 text-xs ${
+                                autofillStatusByKey[`platform-${platform.id}`]?.kind === "error"
+                                  ? "text-red-600"
+                                  : "text-emerald-600"
+                              }`}
+                            >
+                              {autofillStatusByKey[`platform-${platform.id}`]?.text}
+                            </div>
+                          )}
                         </div>
 
                         <div>
@@ -1232,9 +1409,35 @@ export default function CreatorProfileSettings() {
                           <input
                             value={newPlatform.profileUrl}
                             onChange={(e) => setNewPlatform((prev) => ({ ...prev, profileUrl: e.target.value }))}
+                            onBlur={() =>
+                              void autofillPlatformFollowers({
+                                key: "platform-new",
+                                platform: newPlatform.platform,
+                                profileUrl: newPlatform.profileUrl,
+                                applyFollowersCount: (followers) =>
+                                  setNewPlatform((prev) => ({
+                                    ...prev,
+                                    followersCount: String(followers),
+                                  })),
+                              })
+                            }
                             className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                             placeholder="https://platform.com/creator"
                           />
+                          {autofillLoadingKey === "platform-new" && (
+                            <div className="mt-2 text-xs text-gray-500">Loading platform stats...</div>
+                          )}
+                          {autofillStatusByKey["platform-new"] && (
+                            <div
+                              className={`mt-2 text-xs ${
+                                autofillStatusByKey["platform-new"]?.kind === "error"
+                                  ? "text-red-600"
+                                  : "text-emerald-600"
+                              }`}
+                            >
+                              {autofillStatusByKey["platform-new"]?.text}
+                            </div>
+                          )}
                         </div>
 
                         <div>

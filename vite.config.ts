@@ -26,6 +26,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ml-api/, ""),
       },
+      "/social-scraper": {
+        target: "http://46.247.40.227:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/social-scraper/, ""),
+      },
     },
   },
 

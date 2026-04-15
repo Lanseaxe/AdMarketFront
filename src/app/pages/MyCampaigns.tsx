@@ -888,46 +888,9 @@ export default function MyCampaigns() {
                         Ages: {offer.targetMinAge}-{offer.targetMaxAge} | Dates: {offer.campaignStartDate} to{" "}
                         {offer.campaignEndDate}
                       </div>
-                    </div>
 
-                    {isCompany && (
-                      <div className="w-full md:w-[340px] space-y-4">
-                        <div className="flex flex-wrap gap-2">
-                          <Button variant="outline" onClick={() => openEdit(offer)} disabled={formOpen}>
-                            <Pencil className="w-4 h-4 mr-2" />
-                            Edit
-                          </Button>
-                          <select
-                            value={statusDraft[offer.id] || offer.status || "DRAFT"}
-                            onChange={(e) =>
-                              setStatusDraft((prev) => ({
-                                ...prev,
-                                [offer.id]: e.target.value,
-                              }))
-                            }
-                            className="h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
-                          >
-                            {STATUS_OPTIONS.map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                          <Button variant="outline" onClick={() => changeStatus(offer.id)}>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Update Status
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="text-red-600"
-                            onClick={() => deleteOffer(offer.id)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </Button>
-                        </div>
-
-                        <div className="rounded-xl border border-gray-200 bg-[#F9FAFB] p-4">
+                      {isCompany && (
+                        <div className="mt-4 rounded-xl border border-gray-200 bg-[#F9FAFB] p-4">
                           <div className="mb-3 flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2">
                               <Users className="h-4 w-4 text-[#1E3A8A]" />
@@ -962,111 +925,150 @@ export default function MyCampaigns() {
 
                                   return (
                                     <>
-                                <div className="mb-2 flex items-center justify-between gap-3">
-                                  <div className="flex items-start gap-3">
-                                    <UserAvatar
-                                      avatar={creator?.avatar}
-                                      label={creator?.displayName || application.creatorDisplayName}
-                                      className="h-11 w-11 rounded-xl"
-                                      fallbackClassName="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white"
-                                    />
-                                    <div>
-                                      <div className="font-medium text-gray-900">
-                                        {creator?.displayName || application.creatorDisplayName}
+                                      <div className="mb-2 flex items-center justify-between gap-3">
+                                        <div className="flex items-start gap-3">
+                                          <UserAvatar
+                                            avatar={creator?.avatar}
+                                            label={creator?.displayName || application.creatorDisplayName}
+                                            className="h-11 w-11 rounded-xl"
+                                            fallbackClassName="rounded-xl bg-[#1E3A8A] text-sm font-semibold text-white"
+                                          />
+                                          <div>
+                                            <div className="font-medium text-gray-900">
+                                              {creator?.displayName || application.creatorDisplayName}
+                                            </div>
+                                            <div className="text-xs text-gray-500">
+                                              Applied {new Date(application.createdAt).toLocaleDateString()}
+                                            </div>
+                                            <div className="mt-1 text-xs text-gray-500">
+                                              Creator ID: {application.creatorId}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <Badge className={getApplicationBadgeClass(application.status)}>
+                                          {application.status}
+                                        </Badge>
                                       </div>
-                                      <div className="text-xs text-gray-500">
-                                        Applied {new Date(application.createdAt).toLocaleDateString()}
+
+                                      <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                        <div className="rounded-lg border border-blue-100 bg-[#EFF6FF] p-3">
+                                          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#1E3A8A]">
+                                            <Sparkles className="h-3.5 w-3.5" />
+                                            Match Prediction
+                                          </div>
+                                          <div className="mt-2 text-2xl font-bold text-[#1E3A8A]">
+                                            {typeof probability === "number" ? `${probability.toFixed(2)}%` : "N/A"}
+                                          </div>
+                                          <div className="mt-1 text-xs text-gray-600">
+                                            {predictionError || "Estimated success probability for this creator and offer."}
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-lg border border-gray-200 bg-[#F9FAFB] p-3">
+                                          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Creator Snapshot
+                                          </div>
+                                          <div className="mt-2 text-sm text-gray-700">
+                                            Category: {creator?.primaryCategoryName || "N/A"}
+                                          </div>
+                                          <div className="text-sm text-gray-700">
+                                            Followers: {creator?.followersCount ?? "N/A"}
+                                          </div>
+                                          <div className="text-sm text-gray-700">
+                                            Avg Views: {creator?.avgViews ?? "N/A"}
+                                          </div>
+                                          <div className="text-sm text-gray-700">
+                                            Engagement: {typeof creator?.engagementRate === "number" ? `${creator.engagementRate}%` : "N/A"}
+                                          </div>
+                                        </div>
                                       </div>
-                                      <div className="mt-1 text-xs text-gray-500">
-                                        Creator ID: {application.creatorId}
+
+                                      <div className="mb-3 space-y-1">
+                                        <div className="flex items-center gap-2 text-sm text-gray-700">
+                                          <Mail className="h-4 w-4 text-gray-400" />
+                                          <span>{creator?.contactEmail || "Email unavailable"}</span>
+                                        </div>
+                                        <p className="text-sm text-gray-600">
+                                          {creator?.bio?.trim() || "This creator has not added a bio yet."}
+                                        </p>
                                       </div>
-                                    </div>
-                                  </div>
-                                  <Badge className={getApplicationBadgeClass(application.status)}>
-                                    {application.status}
-                                  </Badge>
-                                </div>
 
-                                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                                  <div className="rounded-lg border border-blue-100 bg-[#EFF6FF] p-3">
-                                    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#1E3A8A]">
-                                      <Sparkles className="h-3.5 w-3.5" />
-                                      Match Prediction
-                                    </div>
-                                    <div className="mt-2 text-2xl font-bold text-[#1E3A8A]">
-                                      {typeof probability === "number" ? `${probability.toFixed(2)}%` : "N/A"}
-                                    </div>
-                                    <div className="mt-1 text-xs text-gray-600">
-                                      {predictionError || "Estimated success probability for this creator and offer."}
-                                    </div>
-                                  </div>
-
-                                  <div className="rounded-lg border border-gray-200 bg-[#F9FAFB] p-3">
-                                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                                      Creator Snapshot
-                                    </div>
-                                    <div className="mt-2 text-sm text-gray-700">
-                                      Category: {creator?.primaryCategoryName || "N/A"}
-                                    </div>
-                                    <div className="text-sm text-gray-700">
-                                      Followers: {creator?.followersCount ?? "N/A"}
-                                    </div>
-                                    <div className="text-sm text-gray-700">
-                                      Avg Views: {creator?.avgViews ?? "N/A"}
-                                    </div>
-                                    <div className="text-sm text-gray-700">
-                                      Engagement: {typeof creator?.engagementRate === "number" ? `${creator.engagementRate}%` : "N/A"}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="mb-3 space-y-1">
-                                  <div className="flex items-center gap-2 text-sm text-gray-700">
-                                    <Mail className="h-4 w-4 text-gray-400" />
-                                    <span>{creator?.contactEmail || "Email unavailable"}</span>
-                                  </div>
-                                  <p className="text-sm text-gray-600">
-                                    {creator?.bio?.trim() || "This creator has not added a bio yet."}
-                                  </p>
-                                </div>
-
-                                <div className="flex flex-wrap gap-2">
-                                  <Link to={`/creator/${application.creatorId}`} className="inline-flex">
-                                    <Button variant="outline">
-                                      <Eye className="w-4 h-4 mr-2" />
-                                      View Creator
-                                    </Button>
-                                  </Link>
-                                  <select
-                                    value={applicationStatusDraft[application.id] || application.status}
-                                    onChange={(e) =>
-                                      setApplicationStatusDraft((prev) => ({
-                                        ...prev,
-                                        [application.id]: e.target.value,
-                                      }))
-                                    }
-                                    className="h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
-                                  >
-                                    {APPLICATION_STATUS_OPTIONS.map((status) => (
-                                      <option key={status} value={status}>
-                                        {status}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <Button
-                                    variant="outline"
-                                    disabled={applicationSavingId === application.id}
-                                    onClick={() => void changeApplicationStatus(offer.id, application.id)}
-                                  >
-                                    {applicationSavingId === application.id ? "Saving..." : "Update"}
-                                  </Button>
-                                </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        <Link to={`/creator/${application.creatorId}`} className="inline-flex">
+                                          <Button variant="outline">
+                                            <Eye className="w-4 h-4 mr-2" />
+                                            View Creator
+                                          </Button>
+                                        </Link>
+                                        <select
+                                          value={applicationStatusDraft[application.id] || application.status}
+                                          onChange={(e) =>
+                                            setApplicationStatusDraft((prev) => ({
+                                              ...prev,
+                                              [application.id]: e.target.value,
+                                            }))
+                                          }
+                                          className="h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                                        >
+                                          {APPLICATION_STATUS_OPTIONS.map((status) => (
+                                            <option key={status} value={status}>
+                                              {status}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <Button
+                                          variant="outline"
+                                          disabled={applicationSavingId === application.id}
+                                          onClick={() => void changeApplicationStatus(offer.id, application.id)}
+                                        >
+                                          {applicationSavingId === application.id ? "Saving..." : "Update"}
+                                        </Button>
+                                      </div>
                                     </>
                                   );
                                 })()}
                               </div>
                             ))}
                           </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {isCompany && (
+                      <div className="w-full md:w-[340px] md:flex-shrink-0">
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" onClick={() => openEdit(offer)} disabled={formOpen}>
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Edit
+                          </Button>
+                          <select
+                            value={statusDraft[offer.id] || offer.status || "DRAFT"}
+                            onChange={(e) =>
+                              setStatusDraft((prev) => ({
+                                ...prev,
+                                [offer.id]: e.target.value,
+                              }))
+                            }
+                            className="h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white"
+                          >
+                            {STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                          <Button variant="outline" onClick={() => changeStatus(offer.id)}>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Update Status
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="text-red-600"
+                            onClick={() => deleteOffer(offer.id)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete
+                          </Button>
                         </div>
                       </div>
                     )}
