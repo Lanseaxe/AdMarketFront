@@ -3,6 +3,11 @@ import { useMemo, useState } from "react";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { KeyRound, Lock, ArrowRight, AlertCircle, CheckCircle2, ArrowLeft } from "lucide-react";
+import {
+  getPasswordValidationMessage,
+  normalizePassword,
+  normalizePasswordInput,
+} from "../lib/password-validation";
 
 type ForgetPasswordResponse = {
   id: number;
@@ -12,9 +17,6 @@ type ForgetPasswordResponse = {
 };
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
-const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
-
 function getApiBaseUrl() {
   if (!API_URL) return null;
   return API_URL.replace(/\/+$/, "");
@@ -91,15 +93,22 @@ export default function ForgotPasswordReset() {
 
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [codeTouched, setCodeTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const isValidCode = useMemo(() => /^\d{6}$/.test(code), [code]);
-  const isValidPassword = useMemo(
-    () => newPassword.length >= MIN_PASSWORD_LENGTH && newPassword.length <= MAX_PASSWORD_LENGTH,
+  const normalizedPassword = useMemo(() => normalizePassword(newPassword), [newPassword]);
+  const passwordValidationMessage = useMemo(
+    () => getPasswordValidationMessage(newPassword),
     [newPassword],
   );
+  const isValidPassword = !passwordValidationMessage;
+  const codeEmpty = code.trim().length === 0;
+  const passwordEmpty = normalizedPassword.length === 0;
+  const submitDisabled = loading || codeEmpty || !isValidCode || passwordEmpty || !isValidPassword || !email;
 
   return (
     <div className="min-h-screen bg-white">
@@ -159,6 +168,8 @@ export default function ForgotPasswordReset() {
               e.preventDefault();
               setError(null);
               setSuccess(null);
+              setCodeTouched(true);
+              setPasswordTouched(true);
 
               if (!email) {
                 setError("Email is missing. Go back and request a reset code again.");
@@ -168,8 +179,8 @@ export default function ForgotPasswordReset() {
                 setError("Code must contain exactly 6 digits.");
                 return;
               }
-              if (!isValidPassword) {
-                setError(`New password must be ${MIN_PASSWORD_LENGTH}-${MAX_PASSWORD_LENGTH} characters.`);
+              if (passwordValidationMessage) {
+                setError(passwordValidationMessage);
                 return;
               }
 
@@ -178,7 +189,7 @@ export default function ForgotPasswordReset() {
                 const user = await resetPasswordRequest({
                   email,
                   code: code.trim(),
-                  newPassword: newPassword.trim(),
+                  newPassword: normalizedPassword,
                 });
 
                 localStorage.setItem("userId", String(user.id));
@@ -203,6 +214,7 @@ export default function ForgotPasswordReset() {
                 <input
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onBlur={() => setCodeTouched(true)}
                   inputMode="numeric"
                   pattern="\d{6}"
                   autoComplete="one-time-code"
@@ -211,6 +223,12 @@ export default function ForgotPasswordReset() {
                   required
                 />
               </div>
+              {codeTouched && codeEmpty && (
+                <p className="mt-2 text-xs text-red-600">This field cannot be empty.</p>
+              )}
+              {codeTouched && !codeEmpty && !isValidCode && (
+                <p className="mt-2 text-xs text-red-600">Code must contain exactly 6 digits.</p>
+              )}
             </div>
 
             <div>
@@ -220,21 +238,29 @@ export default function ForgotPasswordReset() {
                 <input
                   type="password"
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  minLength={MIN_PASSWORD_LENGTH}
-                  maxLength={MAX_PASSWORD_LENGTH}
+                  onChange={(e) => setNewPassword(normalizePasswordInput(e.target.value))}
+                  onBlur={() => setPasswordTouched(true)}
                   autoComplete="new-password"
                   placeholder="Enter your new password"
                   className="w-full border border-gray-200 rounded-xl pl-10 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                   required
                 />
               </div>
+              {passwordTouched && passwordEmpty && (
+                <p className="mt-2 text-xs text-red-600">This field cannot be empty.</p>
+              )}
+              {passwordValidationMessage && !passwordEmpty && (
+                <p className="mt-2 text-xs text-red-600">{passwordValidationMessage}</p>
+              )}
+              <p className="mt-2 text-xs text-gray-500">
+                Spaces at the beginning and end are ignored automatically.
+              </p>
             </div>
 
             <Button
               type="submit"
-              disabled={loading || !isValidCode || !isValidPassword || !email}
-              className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90 rounded-xl py-6 text-base"
+              disabled={submitDisabled}
+              className="w-full rounded-xl py-6 text-base disabled:bg-gray-300 disabled:text-gray-500 disabled:hover:bg-gray-300"
             >
               {loading ? "Updating..." : "Update password"}
               <ArrowRight className="w-4 h-4 ml-2" />

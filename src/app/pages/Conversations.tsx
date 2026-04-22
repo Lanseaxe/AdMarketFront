@@ -11,7 +11,7 @@ import UserAvatar from "../components/UserAvatar";
 import { fetchChats, type ChatParticipant } from "../lib/chat";
 import { fetchChatBotInfo } from "../lib/chat-bot";
 import { syncCurrentUserFromApi } from "../lib/user-session";
-import { fetchUserById } from "../lib/user-directory";
+import { fetchAvatarByRoleAndUserId, fetchUserById } from "../lib/user-directory";
 
 function getRoleLabel(role: string) {
   return role === "COMPANY" ? "Company" : role === "CREATOR" ? "Creator" : role;
@@ -47,22 +47,26 @@ export default function Conversations() {
         if (!active) return;
 
         const filteredList = bot ? list.filter((item) => item.id !== bot.id) : list;
-        const missingAvatarIds = Array.from(
-          new Set(filteredList.filter((item) => !item.avatar).map((item) => item.id)),
-        );
+        const missingAvatarParticipants = filteredList.filter((item) => !item.avatar);
 
         const fallbackUsers = await Promise.all(
-          missingAvatarIds.map(async (participantId) => {
+          missingAvatarParticipants.map(async (participant) => {
             try {
-              return [participantId, await fetchUserById(participantId)] as const;
+              const [basicUser, profileAvatar] = await Promise.all([
+                fetchUserById(participant.id).catch(() => null),
+                fetchAvatarByRoleAndUserId(participant.id, participant.role).catch(() => null),
+              ]);
+              return [participant.id, { basicUser, profileAvatar }] as const;
             } catch {
-              return [participantId, null] as const;
+              return [participant.id, null] as const;
             }
           }),
         );
         if (!active) return;
 
-        const fallbackById = fallbackUsers.reduce<Record<number, Awaited<ReturnType<typeof fetchUserById>>>>(
+        const fallbackById = fallbackUsers.reduce<
+          Record<number, { basicUser: Awaited<ReturnType<typeof fetchUserById>>; profileAvatar: string | null } | null>
+        >(
           (acc, [participantId, profile]) => {
             acc[participantId] = profile;
             return acc;
@@ -76,10 +80,10 @@ export default function Conversations() {
             const fallbackProfile = fallbackById[item.id];
             return {
               ...item,
-              email: fallbackProfile?.email || item.email,
-              role: fallbackProfile?.role || item.role,
-              status: fallbackProfile?.status || item.status,
-              avatar: item.avatar || fallbackProfile?.avatar || null,
+              email: fallbackProfile?.basicUser?.email || item.email,
+              role: fallbackProfile?.basicUser?.role || item.role,
+              status: fallbackProfile?.basicUser?.status || item.status,
+              avatar: item.avatar || fallbackProfile?.profileAvatar || fallbackProfile?.basicUser?.avatar || null,
             };
           }),
         );

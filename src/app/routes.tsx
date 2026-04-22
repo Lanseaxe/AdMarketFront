@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router";
 import RootLayout from "./components/RootLayout";
+import ProtectedLayout from "./components/ProtectedLayout";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import CreatorProfile from "./pages/CreatorProfile";
@@ -57,49 +58,54 @@ export const router = createBrowserRouter([
         Component: PaymentFailed,
       },
       {
-        path: "/dashboard",
-        Component: Dashboard,
-      },
-      {
-        path: "/creator/:id",
-        Component: CreatorProfile,
-      },
-      {
-        path: "/company/:id",
-        Component: CompanyPublicProfile,
-      },
-      {
-        path: "/match/:id",
-        Component: MatchExplanation,
-      },
-      {
-        path: "/conversations",
-        Component: Conversations,
-      },
-      {
-        path: "/conversations/:userId",
-        Component: ConversationDetails,
-      },
-      {
-        path: "/campaigns",
-        Component: MyCampaigns,
-      },
-      {
-        path: "/matches",
-        element: (
-          <PlaceholderPage
-            title="AI Matches"
-            description="Browse all AI-matched creators here. Check the Dashboard for top recommendations."
-          />
-        ),
-      },
-      {
-        path: "/analytics",
-        Component: Analytics,
-      },
-      {
-        path: "/profile",
-        Component: ProfileSettings,
+        Component: ProtectedLayout,
+        children: [
+          {
+            path: "/dashboard",
+            Component: Dashboard,
+          },
+          {
+            path: "/creator/:id",
+            Component: CreatorProfile,
+          },
+          {
+            path: "/company/:id",
+            Component: CompanyPublicProfile,
+          },
+          {
+            path: "/match/:id",
+            Component: MatchExplanation,
+          },
+          {
+            path: "/conversations",
+            Component: Conversations,
+          },
+          {
+            path: "/conversations/:userId",
+            Component: ConversationDetails,
+          },
+          {
+            path: "/campaigns",
+            Component: MyCampaigns,
+          },
+          {
+            path: "/matches",
+            element: (
+              <PlaceholderPage
+                title="AI Matches"
+                description="Browse all AI-matched creators here. Check the Dashboard for top recommendations."
+              />
+            ),
+          },
+          {
+            path: "/analytics",
+            Component: Analytics,
+          },
+          {
+            path: "/profile",
+            Component: ProfileSettings,
+          },
+        ],
       },
       {
         path: "*",

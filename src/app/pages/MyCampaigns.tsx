@@ -88,7 +88,7 @@ const DEFAULT_FORM: OfferForm = {
 };
 
 const STATUS_OPTIONS = ["DRAFT", "ACTIVE", "ARCHIVED"] as const;
-const APPLICATION_STATUS_OPTIONS = ["PENDING", "ACCEPTED", "REJECTED", "WITHDRAWN"] as const;
+const APPLICATION_STATUS_OPTIONS = ["PENDING", "ACCEPTED", "REJECTED"] as const;
 const PREDICTION_API_BASE =
   (import.meta.env.VITE_PREDICTION_API_URL as string | undefined)?.trim() || "/ml-api";
 
@@ -325,6 +325,16 @@ export default function MyCampaigns() {
   const [predictionByKey, setPredictionByKey] = useState<Record<string, number | null>>({});
   const [predictionErrorByKey, setPredictionErrorByKey] = useState<Record<string, string>>({});
 
+  const parsedCampaignStartDate = form.campaignStartDate ? new Date(form.campaignStartDate) : null;
+  const parsedCampaignEndDate = form.campaignEndDate ? new Date(form.campaignEndDate) : null;
+  const hasInvalidCampaignDateRange = Boolean(
+    parsedCampaignStartDate &&
+      parsedCampaignEndDate &&
+      !Number.isNaN(parsedCampaignStartDate.getTime()) &&
+      !Number.isNaN(parsedCampaignEndDate.getTime()) &&
+      parsedCampaignEndDate < parsedCampaignStartDate,
+  );
+
   const canSubmit = useMemo(() => {
     return (
       form.title.trim().length > 0 &&
@@ -334,9 +344,10 @@ export default function MyCampaigns() {
       Number(form.targetMinAge) > 0 &&
       Number(form.targetMaxAge) >= Number(form.targetMinAge) &&
       !!form.campaignStartDate &&
-      !!form.campaignEndDate
+      !!form.campaignEndDate &&
+      !hasInvalidCampaignDateRange
     );
-  }, [form]);
+  }, [form, hasInvalidCampaignDateRange]);
 
   const getPredictionKey = (creatorId: number, offerId: number) => `${creatorId}:${offerId}`;
 
@@ -765,6 +776,11 @@ export default function MyCampaigns() {
                     onChange={(e) => setForm((s) => ({ ...s, campaignEndDate: e.target.value }))}
                     className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm"
                   />
+                  {hasInvalidCampaignDateRange && (
+                    <p className="mt-2 text-sm text-red-600">
+                      Campaign end date cannot be earlier than the start date.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1082,4 +1098,3 @@ export default function MyCampaigns() {
     </div>
   );
 }
-

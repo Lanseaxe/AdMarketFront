@@ -13,6 +13,11 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { storeAuthTokens } from "../lib/auth-storage";
+import {
+  getPasswordValidationMessage,
+  normalizePassword,
+  normalizePasswordInput,
+} from "../lib/password-validation";
 import { syncCurrentUserFromApi } from "../lib/user-session";
 
 type Role = "CREATOR" | "COMPANY";
@@ -23,9 +28,6 @@ type RegisterResponse = {
 };
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
-const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
-
 function getApiBaseUrl() {
   if (!API_URL) return null;
   return API_URL.replace(/\/+$/, "");
@@ -105,13 +107,36 @@ export default function SignUp() {
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [agreed, setAgreed] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [password2Touched, setPassword2Touched] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const passwordsMatch = useMemo(() => password.length > 0 && password === password2, [password, password2]);
-  const passwordLengthValid =
-    password.length >= MIN_PASSWORD_LENGTH && password.length <= MAX_PASSWORD_LENGTH;
+  const normalizedPassword = useMemo(() => normalizePassword(password), [password]);
+  const normalizedPassword2 = useMemo(() => normalizePassword(password2), [password2]);
+  const passwordValidationMessage = useMemo(
+    () => getPasswordValidationMessage(password),
+    [password],
+  );
+  const passwordLengthValid = !passwordValidationMessage;
+  const passwordsMatch = useMemo(
+    () => normalizedPassword.length > 0 && normalizedPassword === normalizedPassword2,
+    [normalizedPassword, normalizedPassword2],
+  );
+  const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
+  const emailEmpty = normalizedEmail.length === 0;
+  const passwordEmpty = normalizedPassword.length === 0;
+  const password2Empty = normalizedPassword2.length === 0;
+  const submitDisabled =
+    loading ||
+    emailEmpty ||
+    passwordEmpty ||
+    password2Empty ||
+    !passwordLengthValid ||
+    !passwordsMatch ||
+    !agreed;
 
   return (
     <div className="min-h-screen bg-white">
@@ -188,9 +213,11 @@ export default function SignUp() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 setError(null);
+                setEmailTouched(true);
+                setPasswordTouched(true);
+                setPassword2Touched(true);
 
-                const normalizedEmail = email.trim().toLowerCase();
-                const normalizedPassword = password.trim();
+                const normalizedPassword = normalizePassword(password);
 
                 if (!getApiBaseUrl()) {
                   setError("VITE_API_URL is not set. Add it to your .env file.");
@@ -200,8 +227,8 @@ export default function SignUp() {
                   setError("Email is required.");
                   return;
                 }
-                if (!passwordLengthValid) {
-                  setError(`Password must be ${MIN_PASSWORD_LENGTH}-${MAX_PASSWORD_LENGTH} characters.`);
+                if (passwordValidationMessage) {
+                  setError(passwordValidationMessage);
                   return;
                 }
                 if (!passwordsMatch) {
@@ -285,6 +312,7 @@ export default function SignUp() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    onBlur={() => setEmailTouched(true)}
                     placeholder="you@company.com"
                     className="w-full border border-gray-200 rounded-xl px-10 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                     autoComplete="email"
@@ -293,6 +321,9 @@ export default function SignUp() {
                     spellCheck={false}
                   />
                 </div>
+                {emailTouched && emailEmpty && (
+                  <p className="mt-2 text-xs text-red-600">This field cannot be empty.</p>
+                )}
               </div>
 
               <div>
@@ -303,19 +334,24 @@ export default function SignUp() {
                     type="password"
                     required
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => setPassword(normalizePasswordInput(e.target.value))}
+                    onBlur={() => setPasswordTouched(true)}
                     placeholder="Create a strong password"
                     className="w-full border border-gray-200 rounded-xl px-10 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                     autoComplete="new-password"
-                    minLength={MIN_PASSWORD_LENGTH}
-                    maxLength={MAX_PASSWORD_LENGTH}
                   />
                 </div>
-                {!passwordLengthValid && password.length > 0 && (
+                {passwordTouched && passwordEmpty && (
+                  <p className="mt-2 text-xs text-red-600">This field cannot be empty.</p>
+                )}
+                {passwordValidationMessage && !passwordEmpty && (
                   <p className="mt-2 text-xs text-red-600">
-                    Password must be {MIN_PASSWORD_LENGTH}-{MAX_PASSWORD_LENGTH} characters
+                    {passwordValidationMessage}
                   </p>
                 )}
+                <p className="mt-2 text-xs text-gray-500">
+                  Spaces at the beginning and end are ignored automatically.
+                </p>
               </div>
 
               <div>
@@ -326,15 +362,17 @@ export default function SignUp() {
                     type="password"
                     required
                     value={password2}
-                    onChange={(e) => setPassword2(e.target.value)}
+                    onChange={(e) => setPassword2(normalizePasswordInput(e.target.value))}
+                    onBlur={() => setPassword2Touched(true)}
                     placeholder="Repeat password"
                     className="w-full border border-gray-200 rounded-xl px-10 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                     autoComplete="new-password"
-                    minLength={MIN_PASSWORD_LENGTH}
-                    maxLength={MAX_PASSWORD_LENGTH}
                   />
                 </div>
-                {!passwordsMatch && password2.length > 0 && (
+                {password2Touched && password2Empty && (
+                  <p className="mt-2 text-xs text-red-600">This field cannot be empty.</p>
+                )}
+                {!password2Empty && !passwordsMatch && (
                   <p className="mt-2 text-xs text-red-600">Passwords do not match</p>
                 )}
               </div>
@@ -356,8 +394,8 @@ export default function SignUp() {
 
               <Button
                 type="submit"
-                disabled={loading || !passwordLengthValid || !passwordsMatch || !agreed}
-                className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90 rounded-xl py-6 text-base"
+                disabled={submitDisabled}
+                className="w-full rounded-xl py-6 text-base disabled:bg-gray-300 disabled:text-gray-500 disabled:hover:bg-gray-300"
               >
                 {loading ? "Creating..." : "Create account"}
                 <ArrowRight className="w-4 h-4 ml-2" />

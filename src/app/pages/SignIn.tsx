@@ -7,6 +7,7 @@ import {
   consumePendingProfileRedirectForEmail,
   storeAuthTokens,
 } from "../lib/auth-storage";
+import { normalizePassword } from "../lib/password-validation";
 import { syncCurrentUserFromApi } from "../lib/user-session";
 
 type AuthResponse = {
@@ -166,7 +167,7 @@ export default function SignIn() {
                 setError(null);
 
                 const normalizedEmail = email.trim().toLowerCase();
-                const normalizedPassword = password.trim();
+                const normalizedPassword = normalizePassword(password);
 
                 if (!getApiBaseUrl()) {
                   setError("VITE_API_URL is not set. Add it to your .env file.");

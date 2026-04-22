@@ -20,7 +20,7 @@ import {
 } from "../lib/chat";
 import { fetchChatBotInfo } from "../lib/chat-bot";
 import { syncCurrentUserFromApi } from "../lib/user-session";
-import { fetchUserById } from "../lib/user-directory";
+import { fetchAvatarByRoleAndUserId, fetchUserById } from "../lib/user-directory";
 
 type LocationState = {
   participant?: ChatParticipant;
@@ -62,6 +62,7 @@ export default function ConversationDetails() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [socketError, setSocketError] = useState<string | null>(null);
+  const [socketConnected, setSocketConnected] = useState(false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<ChatSocketConnection | null>(null);
   const participantLabel = locationState.participantName || participant?.email || `User ${targetUserId}`;
@@ -106,13 +107,25 @@ export default function ConversationDetails() {
 
         if (!resolvedParticipant || !resolvedParticipant.avatar) {
           const fallbackUser = await fetchUserById(targetUserId).catch(() => null);
+          const profileAvatar = await fetchAvatarByRoleAndUserId(
+            targetUserId,
+            resolvedParticipant?.role || fallbackUser?.role || "UNKNOWN",
+          ).catch(() => null);
           if (fallbackUser) {
             resolvedParticipant = {
               id: resolvedParticipant?.id ?? fallbackUser.id,
               email: resolvedParticipant?.email || fallbackUser.email,
               role: resolvedParticipant?.role || fallbackUser.role,
               status: resolvedParticipant?.status || fallbackUser.status,
-              avatar: resolvedParticipant?.avatar || fallbackUser.avatar || null,
+              avatar: resolvedParticipant?.avatar || profileAvatar || fallbackUser.avatar || null,
+            };
+          } else if (profileAvatar) {
+            resolvedParticipant = {
+              id: resolvedParticipant?.id ?? targetUserId,
+              email: resolvedParticipant?.email || `User ${targetUserId}`,
+              role: resolvedParticipant?.role || "UNKNOWN",
+              status: resolvedParticipant?.status || "UNKNOWN",
+              avatar: profileAvatar,
             };
           }
         }
@@ -149,10 +162,15 @@ export default function ConversationDetails() {
     if (!currentUserId || !Number.isFinite(targetUserId)) return;
 
     let active = true;
+    setSocketConnected(false);
 
     void (async () => {
       try {
         const connection = await connectToChatSocket({
+          onConnect: () => {
+            setSocketConnected(true);
+            setSocketError(null);
+          },
           onMessage: (incoming) => {
             const isRelevant =
               (incoming.senderId === currentUserId && incoming.recipientId === targetUserId) ||
@@ -162,6 +180,7 @@ export default function ConversationDetails() {
             setMessages((prev) => appendMessage(prev, incoming));
           },
           onError: (message) => {
+            setSocketConnected(false);
             setSocketError(message);
           },
         });
@@ -174,12 +193,14 @@ export default function ConversationDetails() {
         socketRef.current = connection;
       } catch (err: any) {
         if (!active) return;
+        setSocketConnected(false);
         setSocketError(err?.message || "Failed to connect to chat.");
       }
     })();
 
     return () => {
       active = false;
+      setSocketConnected(false);
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
@@ -331,11 +352,11 @@ export default function ConversationDetails() {
                       <Button
                         type="button"
                         onClick={() => void handleSend()}
-                        disabled={sending || !messageText.trim()}
+                        disabled={sending || !messageText.trim() || !socketConnected}
                         className="bg-[#1E3A8A] hover:bg-[#1E3A8A]/90"
                       >
                         <Send className="mr-2 h-4 w-4" />
-                        Send
+                        {socketConnected ? "Send" : "Connecting..."}
                       </Button>
                     </div>
                   </div>

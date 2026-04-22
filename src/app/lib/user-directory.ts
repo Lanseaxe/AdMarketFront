@@ -9,6 +9,10 @@ export type BasicUserProfile = {
   avatar?: string | null;
 };
 
+type ProfileWithAvatar = {
+  avatar?: string | null;
+};
+
 function extractAvatarValue(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
 
@@ -113,6 +117,40 @@ export async function fetchUserById(userId: number): Promise<BasicUserProfile | 
   const parsed = ensureBasicUserProfile(data);
   if (!parsed) throw new Error("Invalid user response from backend.");
   return parsed;
+}
+
+async function fetchProfileByRole(userId: number, role: string): Promise<ProfileWithAvatar | null> {
+  const apiBase = requireApiBase();
+  const normalizedRole = role.toUpperCase();
+  const path =
+    normalizedRole === "CREATOR"
+      ? `/api/v1/creator/user/${userId}`
+      : normalizedRole === "COMPANY"
+        ? `/api/v1/company/user/${userId}`
+        : null;
+
+  if (!path) return null;
+
+  const res = await fetchWithAuthRetry(`${apiBase}${path}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await parseBodySafe(res);
+
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Failed to load ${normalizedRole.toLowerCase()} profile (HTTP ${res.status})`);
+  }
+  if (!data || typeof data !== "object") return null;
+
+  return {
+    avatar: extractAvatarValue(data),
+  };
+}
+
+export async function fetchAvatarByRoleAndUserId(userId: number, role: string): Promise<string | null> {
+  const profile = await fetchProfileByRole(userId, role);
+  return typeof profile?.avatar === "string" && profile.avatar.trim() ? profile.avatar : null;
 }
 
 export async function uploadUserAvatar(userId: number, file: File): Promise<CurrentUser> {

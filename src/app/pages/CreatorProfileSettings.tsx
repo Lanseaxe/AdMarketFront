@@ -14,7 +14,7 @@ import {
 } from "../components/ui/select";
 import { ArrowLeft, AlertCircle, CheckCircle2, Plus, Trash2, User } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
-import { uploadUserAvatar } from "../lib/user-directory";
+import { fetchAvatarByRoleAndUserId, fetchUserById, uploadUserAvatar } from "../lib/user-directory";
 import { syncCurrentUserFromApi } from "../lib/user-session";
 
 type Category = {
@@ -70,6 +70,7 @@ type CreatorProfileResponse = {
   avgViews: number;
   engagementRate: number;
   contactEmail: string;
+  avatar?: string | null;
 };
 
 type CreatorProfileByUserResponse = CreatorProfileResponse & {
@@ -232,6 +233,20 @@ function isValidPercentage(value: number) {
   return Number.isFinite(value) && value >= 0 && value <= 100;
 }
 
+function getAudiencePercentageTotal<
+  T extends {
+    id: number;
+    percentage: number;
+  },
+>(items: T[], nextPercentage: number, excludeId?: number) {
+  return items.reduce((sum, item) => {
+    if (excludeId !== undefined && item.id === excludeId) {
+      return sum;
+    }
+    return sum + Number(item.percentage || 0);
+  }, 0) + nextPercentage;
+}
+
 type ScraperResponse = Record<string, unknown>;
 
 type AutofillStatus = {
@@ -390,6 +405,10 @@ export default function CreatorProfileSettings() {
     localStorage.setItem("profileCompleted", "true");
     localStorage.setItem("fullName", profile.displayName);
     localStorage.setItem("email", profile.contactEmail);
+    if (typeof profile.avatar === "string" && profile.avatar.trim()) {
+      localStorage.setItem("avatar", profile.avatar);
+      setAvatar(profile.avatar);
+    }
 
     setDisplayName(profile.displayName);
     setBio(profile.bio || "");
@@ -430,11 +449,24 @@ export default function CreatorProfileSettings() {
     let active = true;
     const load = async () => {
       try {
+        const cachedAvatar = localStorage.getItem("avatar");
         const me = await syncCurrentUserFromApi().catch(() => null);
         if (!active) return;
-        if (me?.avatar !== undefined) {
-          setAvatar(me.avatar ?? null);
-        }
+        const [basicUser, profileAvatar] = Number.isFinite(userId)
+          ? await Promise.all([
+              fetchUserById(userId).catch(() => null),
+              fetchAvatarByRoleAndUserId(userId, "CREATOR").catch(() => null),
+            ])
+          : [null, null];
+        if (!active) return;
+
+        const resolvedAvatar =
+          profileAvatar ||
+          (typeof basicUser?.avatar === "string" && basicUser.avatar.trim() && basicUser.avatar) ||
+          (typeof me?.avatar === "string" && me.avatar.trim() && me.avatar) ||
+          cachedAvatar;
+
+        setAvatar(resolvedAvatar ?? null);
 
         const [categoryList, countryList] = await Promise.all([
           fetchJson<Category[]>(`${apiBase}/api/v1/category`),
@@ -482,6 +514,23 @@ export default function CreatorProfileSettings() {
   const canSave = useMemo(() => {
     return !saving && !initLoading && isCreator && Number.isFinite(userId) && isEditing;
   }, [saving, initLoading, isCreator, userId, isEditing]);
+  const audienceAgeTotal = useMemo(
+    () => audienceAges.reduce((sum, item) => sum + Number(item.percentage || 0), 0),
+    [audienceAges],
+  );
+  const audienceGeoTotal = useMemo(
+    () => audienceGeos.reduce((sum, item) => sum + Number(item.percentage || 0), 0),
+    [audienceGeos],
+  );
+  const parsedEngagementRate = useMemo(() => Number(engagementRate), [engagementRate]);
+  const engagementRateError = useMemo(() => {
+    if (!engagementRate.trim()) return null;
+    if (!Number.isFinite(parsedEngagementRate)) return "Engagement rate must be a valid number.";
+    if (parsedEngagementRate < 1 || parsedEngagementRate > 100) {
+      return "Engagement rate must be from 1 to 100.";
+    }
+    return null;
+  }, [engagementRate, parsedEngagementRate]);
 
   const setAutofillStatus = (key: string, status: AutofillStatus | null) => {
     setAutofillStatusByKey((prev) => {
@@ -562,7 +611,7 @@ export default function CreatorProfileSettings() {
       setError("Name is required.");
       return;
     }
-    if (!Number.isFinite(parsedCategoryId) || parsedCategoryId < 0) {
+    if (!Number.isFinite(parsedCategoryId) || parsedCategoryId <= 0) {
       setError("Please choose a category.");
       return;
     }
@@ -817,6 +866,10 @@ export default function CreatorProfileSettings() {
       setError("Age percentage must be from 0 to 100.");
       return;
     }
+    if (getAudiencePercentageTotal(audienceAges, percentage) > 100) {
+      setError("Total audience age percentage cannot exceed 100%.");
+      return;
+    }
 
     try {
       setSectionLoading("age-add");
@@ -855,6 +908,10 @@ export default function CreatorProfileSettings() {
     }
     if (!isValidPercentage(audienceAge.percentage)) {
       setError("Age percentage must be from 0 to 100.");
+      return;
+    }
+    if (getAudiencePercentageTotal(audienceAges, audienceAge.percentage, audienceAge.id) > 100) {
+      setError("Total audience age percentage cannot exceed 100%.");
       return;
     }
 
@@ -924,6 +981,10 @@ export default function CreatorProfileSettings() {
       setError("Country percentage must be from 0 to 100.");
       return;
     }
+    if (getAudiencePercentageTotal(audienceGeos, percentage) > 100) {
+      setError("Total audience country percentage cannot exceed 100%.");
+      return;
+    }
 
     try {
       setSectionLoading("geo-add");
@@ -953,6 +1014,10 @@ export default function CreatorProfileSettings() {
 
     if (!isValidPercentage(audienceGeo.percentage)) {
       setError("Country percentage must be from 0 to 100.");
+      return;
+    }
+    if (getAudiencePercentageTotal(audienceGeos, audienceGeo.percentage, audienceGeo.id) > 100) {
+      setError("Total audience country percentage cannot exceed 100%.");
       return;
     }
 
@@ -1025,9 +1090,11 @@ export default function CreatorProfileSettings() {
               </div>
               <h1 className="text-3xl font-bold text-gray-900">Creator Profile</h1>
             </div>
-            <p className="text-gray-600">
-              Complete this once after registration, then update it anytime from Profile.
-            </p>
+            {localStorage.getItem("creatorProfileCompleted") !== "true" && (
+              <p className="text-gray-600">
+                Complete this once after registration, then update it anytime from Profile.
+              </p>
+            )}
           </Card>
 
           <Card className="p-8 bg-white border border-gray-200 rounded-xl">
@@ -1197,6 +1264,9 @@ export default function CreatorProfileSettings() {
                     className="mt-2 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                     placeholder="1 - 100"
                   />
+                  {engagementRateError && (
+                    <p className="mt-2 text-xs text-red-600">{engagementRateError}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1219,7 +1289,7 @@ export default function CreatorProfileSettings() {
                 {isEditing ? (
                   <Button
                     type="button"
-                    disabled={!canSave}
+                    disabled={!canSave || Boolean(engagementRateError)}
                     onClick={onSave}
                     className="w-full bg-[#1E3A8A] hover:bg-[#1E3A8A]/90 rounded-xl py-6 text-base"
                   >
@@ -1507,6 +1577,9 @@ export default function CreatorProfileSettings() {
 
               <TabsContent value="audience-age" className="mt-0">
                 <div className="space-y-4">
+                  <div className="rounded-xl border border-blue-100 bg-[#EFF6FF] px-4 py-3 text-sm text-[#1E3A8A]">
+                    Added audience age: <span className="font-semibold">{audienceAgeTotal}%</span> of 100%
+                  </div>
                   {audienceAges.map((item) => (
                     <div key={item.id} className="rounded-xl border border-gray-200 p-4 bg-[#FBFCFE]">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1675,6 +1748,9 @@ export default function CreatorProfileSettings() {
 
               <TabsContent value="audience-country" className="mt-0">
                 <div className="space-y-4">
+                  <div className="rounded-xl border border-blue-100 bg-[#EFF6FF] px-4 py-3 text-sm text-[#1E3A8A]">
+                    Added audience country: <span className="font-semibold">{audienceGeoTotal}%</span> of 100%
+                  </div>
                   {audienceGeos.map((item) => (
                     <div key={item.id} className="rounded-xl border border-gray-200 p-4 bg-[#FBFCFE]">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -13,7 +13,7 @@ import {
 } from "../components/ui/select";
 import { ArrowLeft, AlertCircle, CheckCircle2, Building2 } from "lucide-react";
 import { fetchWithAuthRetry, getApiBaseUrl, parseBodySafe } from "../lib/api-client";
-import { uploadUserAvatar } from "../lib/user-directory";
+import { fetchAvatarByRoleAndUserId, fetchUserById, uploadUserAvatar } from "../lib/user-directory";
 import { syncCurrentUserFromApi } from "../lib/user-session";
 
 type Industry = {
@@ -39,6 +39,7 @@ type CompanyProfileResponse = {
   country: Country;
   minBudget: number;
   maxBudget: number;
+  avatar?: string | null;
 };
 
 function getErrorMessage(status: number, data: unknown, fallback: string) {
@@ -164,11 +165,24 @@ export default function CompanyProfile() {
     let active = true;
     const load = async () => {
       try {
+        const cachedAvatar = localStorage.getItem("avatar");
         const me = await syncCurrentUserFromApi().catch(() => null);
         if (!active) return;
-        if (me?.avatar !== undefined) {
-          setAvatar(me.avatar ?? null);
-        }
+        const [basicUser, profileAvatar] = Number.isFinite(userId)
+          ? await Promise.all([
+              fetchUserById(userId).catch(() => null),
+              fetchAvatarByRoleAndUserId(userId, "COMPANY").catch(() => null),
+            ])
+          : [null, null];
+        if (!active) return;
+
+        const resolvedAvatar =
+          profileAvatar ||
+          (typeof basicUser?.avatar === "string" && basicUser.avatar.trim() && basicUser.avatar) ||
+          (typeof me?.avatar === "string" && me.avatar.trim() && me.avatar) ||
+          cachedAvatar;
+
+        setAvatar(resolvedAvatar ?? null);
 
         const [industryList, countryList] = await Promise.all([
           fetchJson<Industry[]>(`${apiBase}/api/v1/industry`),
@@ -206,6 +220,10 @@ export default function CompanyProfile() {
           localStorage.setItem("companyProfileCompleted", "true");
           localStorage.setItem("profileCompleted", "true");
           localStorage.setItem("fullName", profile.companyName);
+          if (typeof profile.avatar === "string" && profile.avatar.trim()) {
+            localStorage.setItem("avatar", profile.avatar);
+            setAvatar(profile.avatar);
+          }
 
           setName(profile.companyName);
           setBio(profile.description || "");
@@ -259,11 +277,11 @@ export default function CompanyProfile() {
       setError("Company name is required.");
       return;
     }
-    if (!Number.isFinite(parsedIndustryId) || parsedIndustryId < 0) {
+    if (!Number.isFinite(parsedIndustryId) || parsedIndustryId <= 0) {
       setError("Please choose an industry.");
       return;
     }
-    if (!Number.isFinite(parsedCountryId) || parsedCountryId < 0) {
+    if (!Number.isFinite(parsedCountryId) || parsedCountryId <= 0) {
       setError("Please choose a country.");
       return;
     }
@@ -389,9 +407,11 @@ export default function CompanyProfile() {
               </div>
               <h1 className="text-3xl font-bold text-gray-900">Company Profile</h1>
             </div>
-            <p className="text-gray-600 mb-6">
-              Complete this once after registration, then update it anytime from Profile.
-            </p>
+            {localStorage.getItem("companyProfileCompleted") !== "true" && (
+              <p className="text-gray-600 mb-6">
+                Complete this once after registration, then update it anytime from Profile.
+              </p>
+            )}
 
             {!isCompany && (
               <div className="mb-5 flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
